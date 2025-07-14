@@ -2,9 +2,7 @@
 
 ## Overview
 
-Lydlr AI is an advanced ROS 2 system designed for real-time intelligent compression of multimodal sensor data, including camera images, LiDAR, IMU, and audio streams, specifically tailored for edge devices such as Raspberry Pi and NVIDIA Jetson.
-
-This system leverages state-of-the-art neural network architectures combining convolutional encoders, temporal LSTM modeling, and reinforcement learning to dynamically adapt compression quality based on system resources and perceptual feedback. It integrates real-time quality assessment via the LPIPS metric to maintain high fidelity while optimizing bandwidth and storage.
+This project is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation using convolutional and recurrent neural networks. The system leverages temporal context through LSTM layers to improve compression efficiency by learning patterns over time. A reinforcement learning-based controller dynamically adjusts compression levels based on system conditions such as CPU load, battery status, and network bandwidth, ensuring an optimal balance between data quality and resource usage. Additionally, a real-time quality assessment module uses perceptual metrics (LPIPS) to monitor reconstruction fidelity, enabling adaptive tuning on the fly. Synthetic sensor data streams simulate diverse environments for thorough testing and development. The entire pipeline is designed for deployment on edge devices like Raspberry Pi or NVIDIA Jetson, with model quantization and export capabilities for efficient execution on constrained hardware.
 
 ---
 
