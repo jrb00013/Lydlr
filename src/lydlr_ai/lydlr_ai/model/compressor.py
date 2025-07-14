@@ -8,7 +8,7 @@ import lpips  # Make sure lpips is installed via pip
 # --- Multi-Modal Encoders ---
 
 class ImageEncoder(nn.Module):
-    def __init__(self, input_height=480, input_width=640, channels=3):
+    def __init__(self, channels=3, input_height=480, input_width=640):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(channels, 16, 3, stride=2, padding=1),  # B,16,H/2,W/2
@@ -66,7 +66,8 @@ class AudioEncoder(nn.Module):
 class MultimodalCompressor(nn.Module):
     def __init__(self, image_shape=(3,480,640), lidar_dim=1024, imu_dim=6, audio_dim=128*128):
         super().__init__()
-        self.image_encoder = ImageEncoder(*image_shape)
+        channels, height, width = image_shape
+        self.image_encoder = ImageEncoder(channels, height, width)
         self.lidar_encoder = LiDAREncoder(lidar_dim)
         self.imu_encoder = IMUEncoder(imu_dim)
         self.audio_encoder = AudioEncoder(audio_dim)
@@ -83,6 +84,15 @@ class MultimodalCompressor(nn.Module):
             nn.Linear(256, 128 + 128 + 32 + 128)  # reconstruct fusion features
         )
 
+        self.image_decoder_fc = nn.Linear(128, 32 * (image_shape[1] // 4) * (image_shape[2] // 4))
+        
+        self.image_decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1),  # Upsample H/4 -> H/2
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, image_shape[0], 4, stride=2, padding=1),  # Upsample H/2 -> H
+            nn.Sigmoid()
+        )
+
     def forward(self, image, lidar, imu, audio, hidden_state=None):
         img_enc = self.image_encoder(image)
         lidar_enc = self.lidar_encoder(lidar)
@@ -95,10 +105,17 @@ class MultimodalCompressor(nn.Module):
         # Run LSTM for temporal context
         lstm_out, hidden_state = self.lstm(fused, hidden_state)  # lstm_out (B,1,128)
 
-        # Differential compression: predict next latent delta (simulate with decoder output)
         decoded = self.decoder(lstm_out.squeeze(1))
 
-        return lstm_out.squeeze(1), decoded, hidden_state
+         # --- Image reconstruction from latent for quality assessment ---
+        img_feat_flat = self.image_decoder_fc(lstm_out.squeeze(1))
+        batch_size = image.size(0)
+        feat_map_H = image.size(1) // 4
+        feat_map_W = image.size(2) // 4
+        img_feat = img_feat_flat.view(batch_size, 32, feat_map_H, feat_map_W)
+        reconstructed_img = self.image_decoder_conv(img_feat)
+
+        return lstm_out.squeeze(1), decoded, hidden_state, reconstructed_img
 
 # --- Reinforcement Learning Stub for Dynamic Compression Controller ---
 

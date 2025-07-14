@@ -22,7 +22,7 @@ setup(
         'console_scripts': [
             'talker = lydlr_ai.my_node:main',
             'optimizer_node = lydlr_ai.optimizer_node:main',
-            'testing = lydlr_ai.test_publisher_node:main',
+            'synthetic_multimodal_publisher = lydlr_ai.synthetic_multimodal_publisher:main',
         ],
     },
 )

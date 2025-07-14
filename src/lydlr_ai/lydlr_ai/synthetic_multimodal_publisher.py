@@ -1,4 +1,4 @@
-# test_publisher_node.py
+# synthetic_multimodal_publisher.py
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
