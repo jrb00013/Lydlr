@@ -22,7 +22,7 @@ This project is an AI-powered compression system designed to optimize storage an
 
 ### Prerequisites
 
-- ROS 2 (Foxy/Galactic/Humble recommended)
+- ROS 2 (Humble or Foxy recommended)
 - Python 3.8+
 - PyTorch
 - lpips (`pip install lpips`)
