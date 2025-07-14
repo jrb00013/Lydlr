@@ -15,8 +15,13 @@ docker run -it --name ros2_ai \
     -v ~/Documents/lydlr:/root/lydlr \
     osrf/ros:humble-desktop
 
-# This mounts your Mac folder at:
-# ~/Documents/lydlr --> /root/lydlr inside the container
+
+Start there directly:
+docker exec -it ros2_ai bash -c "cd /root/lydlr/lydlr_ws && bash"
+
+Re-Run:
+docker start -ai ros2_ai
+cd /root/lydlr/lydlr_ws
 
 # -----------------------------------------
 # 3. Source ROS 2 Environment
@@ -30,7 +35,7 @@ source /opt/ros/humble/setup.bash
 # -----------------------------------------
 mkdir -p /root/lydlr/lydlr_ws/src
 cd /root/lydlr/lydlr_ws
-colcon build
+colcon build --symlink-install
 source install/setup.bash
 
 # -----------------------------------------
@@ -49,7 +54,7 @@ ros2 pkg create --build-type ament_python \
 # 6. Build the Workspace
 # -----------------------------------------
 cd /root/lydlr/lydlr_ws
-colcon build
+colcon build --symlink-install
 
 # -----------------------------------------
 # 7. Source the Workspace
@@ -76,7 +81,7 @@ entry_points={
 # 10. Rebuild & Run the Node
 # -----------------------------------------
 cd /root/lydlr/lydlr_ws
-colcon build
+colcon build --symlink-install
 source install/setup.bash
 
 ros2 run lydlr_ai your_node
@@ -102,18 +107,15 @@ docker exec -it ros2_ai bash
 docker stop ros2_ai
 docker rm ros2_ai
 
-# =========================================
-# Folder Structure (on host Mac)
-# =========================================
 
-# ~/Documents/lydlr/
-# └── lydlr_ws/
-#     ├── src/
-#     │   └── lydlr_ai/
-#     │       └── lydlr_ai/
-#     │           └── your_new_node.py
-#     ├── build/
-#     ├── install/
-#     └── log/
+# Sending Test Topic for ROS2 Publishing
 
-# =========================================
+ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
+  header: {frame_id: 'fake_camera'},
+  height: 3,
+  width: 2,
+  encoding: 'mono8',
+  is_bigendian: 0,
+  step: 2,
+  data: [0, 50, 100, 150, 200, 255]
+}"
