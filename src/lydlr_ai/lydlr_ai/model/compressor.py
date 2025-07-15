@@ -1,4 +1,5 @@
 # lydlr_ai/model/compressor.py
+import psutil
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -87,9 +88,16 @@ class MultimodalCompressor(nn.Module):
 
         # Temporal context via LSTM on fused features over time
         #self.lstm = nn.LSTM(256, 128, batch_first=True)
-        
+
         encoder_layer = nn.TransformerEncoderLayer(d_model=256, nhead=4)
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
+
+        # Predictor for prediction head
+        self.predictor = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256)
+        )
 
         # Decoder for reconstruction (simple linear for demo)
         self.decoder = nn.Sequential(
@@ -154,20 +162,39 @@ class CompressionPolicy:
         self.compression_level = 1.0  # 1.0=full quality, <1.0 more compression
         self.reward = 0.0
 
+    def estimate_battery(self):
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return 1.0  # assume plugged-in or desktop system
+            return battery.percent / 100.0
+        except Exception as e:
+            print(f"[Battery Estimation Error]: {e}")
+            return 1.0  # fallback
+
+
     def update_policy(self, compression_ratio, quality_dict):
         lpips = quality_dict['lpips']
         psnr = quality_dict['psnr']
         ssim = quality_dict['ssim']
 
-        # Basic score: combine multiple metrics
+        # Combine multiple metrics
         quality_score = (1 - lpips) * 0.5 + psnr / 50.0 * 0.25 + ssim * 0.25
         reward = quality_score / (compression_ratio + 1e-6)
 
-        # Reinforcement stub: simple gradient ascent
-        if reward < 0.5:
-            self.compression_level = min(1.0, self.compression_level + 0.05)
-        else:
+        cpu = psutil.cpu_percent() / 100.0
+        battery = self.estimate_battery()
+        priority = self.priority_map.get(topic, 0.7)
+
+        # Policy condition final score
+        score = 0.3 * reward + 0.3 * (1 - cpu) + 0.2 * battery + 0.2 * priority
+
+        # Adjust compression level based on the policy condition score
+        if score > 0.6:
             self.compression_level = max(0.1, self.compression_level - 0.05)
+        else:
+            self.compression_level = min(1.0, self.compression_level + 0.05)
+
 
     def get_level(self):
         return self.compression_level

@@ -69,11 +69,15 @@ source install/setup.bash
 
 # -----------------------------------------
 # 9. Register Your Node
+
 # In lydlr_ai/setup.py, add:
+
+your_node_name is the python file without the .py
+
 # -----------------------------------------
 entry_points={
     'console_scripts': [
-        'your_node = lydlr_ai.your_node:main',
+        'your_node_name = lydlr_ai.your_node_file_name:main',
     ],
 },
 
@@ -84,7 +88,7 @@ cd /root/lydlr/lydlr_ws
 colcon build --symlink-install
 source install/setup.bash
 
-ros2 run lydlr_ai your_node
+ros2 run lydlr_ai your_node_name
 
 # -----------------------------------------
 # 11. Stopping & Restarting Container
@@ -119,3 +123,20 @@ ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
   step: 2,
   data: [0, 50, 100, 150, 200, 255]
 }"
+
+
+
+####################################
+
+a. Create a virtual environment
+From your workspace root (~/lydlr/lydlr_ws):
+
+python3 -m venv .venv
+This creates a .venv folder that contains an isolated Python environment.
+
+b. Activate the virtual environment
+source .venv/bin/activate
+
+
+Always run " colcon build " in the workspace folder. 
+But you can run any ros2 node in any directory, by using source install/setup.bash
