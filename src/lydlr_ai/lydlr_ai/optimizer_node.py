@@ -3,10 +3,15 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
 import torch
+import torchaudio
+from torchaudio.transforms import MelSpectrogram
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import numpy as np
-import psutil  # For system metrics
+import psutil 
 
+from lydlr_ai.utils.voxel_utils import visualize_voxel_lidar
 from lydlr_ai.model.compressor import MultimodalCompressor, CompressionPolicy, QualityAssessor
+from lydlr_ai.model.transformer import PositionalEncoding
 
 class StorageOptimizer(Node):
     def __init__(self):
@@ -27,6 +32,15 @@ class StorageOptimizer(Node):
         self.input_seq = [] 
         self.seq_len = 4 # can be tuned if needed later
 
+        # Initialize PositionalEncoder and transformer
+        self.d_model = 256
+        self.pos_encoder = PositionalEncoding(d_model=self.d_model, max_len=50)
+        encoder_layer = TransformerEncoderLayer(d_model=self.d_model, nhead=4)
+        self.transformer = TransformerEncoder(encoder_layer, num_layers=2)
+
+        # Mel Spectograph
+        self.mel = MelSpectrogram(sample_rate=16000, n_fft=400, hop_length=160, n_mels=64)
+
         self.latest_inputs = {
             'image': None,
             'imu': None,
@@ -40,9 +54,11 @@ class StorageOptimizer(Node):
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
                 img_np = img_np / 255.0
                 img_tensor = torch.tensor(img_np, dtype=torch.float32).permute(2,0,1).unsqueeze(0)
+                img_tensor = (img_tensor - 0.5) / 0.5
             elif msg.encoding == 'mono8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width) / 255.0
                 img_tensor = torch.tensor(img_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+                img_tensor = (img_tensor - 0.5) / 0.5
             else:
                 self.get_logger().warn(f"Unsupported encoding: {msg.encoding}")
                 return
@@ -52,16 +68,27 @@ class StorageOptimizer(Node):
             self.get_logger().error(f"Camera processing failed: {e}")
 
     def imu_callback(self, msg):
-        self.latest_inputs['imu'] = torch.tensor([[msg.data]*6], dtype=torch.float32)
-        self.try_compress()
+        imu_tensor = torch.tensor([[msg.data]*6], dtype=torch.float32)
+        imu_tensor = (imu_tensor - imu_tensor.mean()) / (imu_tensor.std() + 1e-6)
+        self.latest_inputs['imu'] = imu_tensor
+        self.try_compress() # [ax, ay, az, gx, gy, gz]
 
     def lidar_callback(self, msg):
-        self.latest_inputs['lidar'] = torch.tensor([[msg.data]*1024], dtype=torch.float32)
+        lidar_tensor = torch.tensor([[msg.data]*1024], dtype=torch.float32)
+        lidar_tensor = (lidar_tensor - lidar_tensor.mean()) / (lidar_tensor.std() + 1e-6)
+        self.latest_inputs['lidar'] = lidar_tensor
+        visualize_voxel_lidar(self.latest_inputs['lidar'])
         self.try_compress()
 
     def audio_callback(self, msg):
-        self.latest_inputs['audio'] = torch.tensor([[msg.data]*16384], dtype=torch.float32)
+        waveform = torch.tensor(msg.data).view(1, -1)    # shape: (1, N)
+        spec = self.mel(waveform)     # shape: (1, 64, T)
+        spec = spec.log2().clamp(min=-20) / 20    # normalize
+        spec = (spec - spec.mean()) / (spec.std() + 1e-6) # normalize further
+        self.latest_inputs['audio'] = spec.unsqueeze(0)     # (B, 1, 64, T)
+        #self.latest_inputs['audio'] = torch.tensor([[msg.data]*16384], dtype=torch.float32)
         self.try_compress()
+        
 
     def try_compress(self):
         if None in self.latest_inputs.values():
@@ -97,10 +124,14 @@ class StorageOptimizer(Node):
         sequence = torch.cat(self.input_seq[-self.seq_len:], dim=1)  # (B, seq_len, 256)
 
         # --- Temporal compression via LSTM ---
-        lstm_out, self.hidden_state = self.compressor.lstm(sequence, self.hidden_state)
-
+        #lstm_out, self.hidden_state = self.compressor.lstm(sequence, self.hidden_state)
+        
+        sequence = sequence.permute(1, 0, 2)  # (seq_len, B, 256)
+        sequence = self.pos_encoder(sequence)
+        transformer_out = self.transformer(sequence)  # (seq_len, B, 256)
+        
         # Decode & reconstruct from latest timestep output
-        compressed_latent = lstm_out[:, -1, :]  # Take last frame
+        compressed_latent = transformer_out[-1] # Take last frame
         decoded = self.compressor.decoder(compressed_latent)
 
         # Reconstruct image for quality check

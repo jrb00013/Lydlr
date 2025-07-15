@@ -3,9 +3,9 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-class MinimalPublisher(Node):
+class Publisher(Node):
     def __init__(self):
-        super().__init__('minimal_publisher')
+        super().__init__('publisher')
         self.publisher_ = self.create_publisher(String, 'chatter', 10)
         self.timer = self.create_timer(0.5, self.timer_callback)
 
@@ -17,10 +17,11 @@ class MinimalPublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MinimalPublisher()
+    node = Publisher()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
+

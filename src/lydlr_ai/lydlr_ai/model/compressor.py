@@ -6,28 +6,32 @@ from torchvision import models
 import lpips 
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-# --- Multi-Modal Encoders ---
+from lydlr_ai.utils.voxel_utils import lidar_to_pointcloud
 
+# --- Multi-Modal Encoders ---
 class ImageEncoder(nn.Module):
-    def __init__(self, channels=3, input_height=480, input_width=640):
+    def __init__(self, channels=3):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(channels, 16, 3, stride=2, padding=1),  # B,16,H/2,W/2
+            nn.Conv2d(channels, 16, 3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1),        # B,32,H/4,W/4
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
             nn.ReLU()
         )
-        self.flatten_dim = 32 * (input_height // 4) * (input_width // 4)
-        self.fc = nn.Linear(self.flatten_dim, 128)
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))  # fixed for now
+        self.fc = nn.Linear(32 * 4 * 4, 128)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
+        conv_out = self.conv(x)
+        self._output_shape = conv_out.shape  # store shape for decoder
+        pooled = self.pool(conv_out)
+        return self.fc(pooled.view(x.size(0), -1))
+
+    def get_conv_output_shape(self):
+        return self._output_shape
 
 class LiDAREncoder(nn.Module):
-    def __init__(self, input_dim=1024):
+    def __init__(self, input_dim):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, 256),
@@ -51,16 +55,22 @@ class IMUEncoder(nn.Module):
         return self.net(x)
 
 class AudioEncoder(nn.Module):
-    def __init__(self, input_dim=128*128):  # Simulated spectrogram flattened
+    def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 256),
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Linear(256, 128)
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4))
         )
+        self.fc = nn.Linear(32 * 4 * 4, 128)
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, x):  # x: (B, 1, H, W)
+        x = self.cnn(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
 
 # --- Multimodal Fusion + Temporal LSTM ---
 
@@ -76,7 +86,10 @@ class MultimodalCompressor(nn.Module):
         self.fusion_fc = nn.Linear(128 + 128 + 32 + 128, 256)
 
         # Temporal context via LSTM on fused features over time
-        self.lstm = nn.LSTM(256, 128, batch_first=True)
+        #self.lstm = nn.LSTM(256, 128, batch_first=True)
+        
+        encoder_layer = nn.TransformerEncoderLayer(d_model=256, nhead=4)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
 
         # Decoder for reconstruction (simple linear for demo)
         self.decoder = nn.Sequential(
@@ -96,7 +109,10 @@ class MultimodalCompressor(nn.Module):
     
     def fuse_modalities(self, image, lidar, imu, audio, compression_level=1.0):
         img_enc = self.image_encoder(image)
-        lidar_enc = self.lidar_encoder(lidar)
+
+        lidar_xyz = lidar_to_pointcloud(lidar)  # shape: (B, N, 3)
+        lidar_enc = self.lidar_encoder(lidar_xyz.view(lidar.size(0), -1))
+       
         imu_enc = self.imu_encoder(imu)
         audio_enc = self.audio_encoder(audio)
 
@@ -105,28 +121,28 @@ class MultimodalCompressor(nn.Module):
         fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
         return fused  # shape: (B, 256)
 
-    def forward(self, image, lidar, imu, audio, hidden_state=None):
+    def forward(self, image, lidar, imu, audio, hidden_state=None, compression_level=1.0):
         img_enc = self.image_encoder(image)
-        lidar_enc = self.lidar_encoder(lidar)
+        lidar_xyz = lidar_to_pointcloud(lidar)  # shape: (B, N, 3)
+        lidar_enc = self.lidar_encoder(lidar_xyz.view(lidar.size(0), -1))
         imu_enc = self.imu_encoder(imu)
         audio_enc = self.audio_encoder(audio)
 
         fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
         fused = self.fusion_fc(fused)  # Add seq dim for LSTM (B,1,256)
         fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
-        lstm_out, hidden_state = self.lstm(fused, hidden_state)
 
-        # Run LSTM for temporal context
+        # Run LSTM -> temporal context
         lstm_out, hidden_state = self.lstm(fused, hidden_state)  # lstm_out (B,1,128)
 
         decoded = self.decoder(lstm_out.squeeze(1))
 
          # --- Image reconstruction from latent for quality assessment ---
-        img_feat_flat = self.image_decoder_fc(lstm_out.squeeze(1))
         batch_size = image.size(0)
-        feat_map_H = image.size(2) // 4
-        feat_map_W = image.size(3) // 4
-        img_feat = img_feat_flat.view(batch_size, 32, feat_map_H, feat_map_W)
+        feat_shape = self.image_encoder.get_conv_output_shape()  # (B, C, H', W')
+        feat_H, feat_W = feat_shape[2], feat_shape[3]
+        img_feat_flat = self.image_decoder_fc(lstm_out.squeeze(1))
+        img_feat = img_feat_flat.view(batch_size, 32, feat_H, feat_W)
         reconstructed_img = self.image_decoder_conv(img_feat)
 
         return lstm_out.squeeze(1), decoded, hidden_state, reconstructed_img
@@ -197,7 +213,8 @@ def export_torchscript(model, path="model_scripted.pt"):
 class VAE(nn.Module):
     def __init__(self, input_channels=3, latent_dim=128, input_height=480, input_width=640):
         super().__init__()
-        # Encoder: Conv layers to latent mean and logvar
+        # Encoder: convert layers to latent mean and logvar
+
         self.encoder_conv = nn.Sequential(
             nn.Conv2d(input_channels, 32, 4, stride=2, padding=1),  # H/2, W/2
             nn.ReLU(),
@@ -291,11 +308,19 @@ class VQVAE(nn.Module):
     def __init__(self, input_channels=3, embedding_dim=64, num_embeddings=512):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(input_channels, 64, 4, stride=2, padding=1),  # B,64,H/2,W/2
-            nn.ReLU(),
-            nn.Conv2d(64, embedding_dim, 4, stride=2, padding=1),  # B,C,H/4,W/4
-            nn.ReLU()
+            *list(models.resnet18(pretrained=True).children())[:-2],
+            nn.AdaptiveAvgPool2d((1,1)),
+            nn.Flatten(),
+            nn.Linear(512, 128)
         )
+
+        # self.encoder = nn.Sequential(
+        #     nn.Conv2d(input_channels, 64, 4, stride=2, padding=1),  # B,64,H/2,W/2
+        #     nn.ReLU(),
+        #     nn.Conv2d(64, embedding_dim, 4, stride=2, padding=1),  # B,C,H/4,W/4
+        #     nn.ReLU()
+        # ) # may need soon
+
         self.vq_layer = VectorQuantizer(num_embeddings, embedding_dim)
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(embedding_dim, 64, 4, stride=2, padding=1),
