@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'talker = lydlr_ai.my_node:main',
+            'demo = lydlr_ai.demo:main',
             'optimizer_node = lydlr_ai.optimizer_node:main',
             'synthetic_multimodal_publisher = lydlr_ai.synthetic_multimodal_publisher:main',
         ],

@@ -23,6 +23,10 @@ class StorageOptimizer(Node):
         self.assessor = QualityAssessor()
         self.hidden_state = None
 
+        # Adding a buffer
+        self.input_seq = [] 
+        self.seq_len = 4 # can be tuned if needed later
+
         self.latest_inputs = {
             'image': None,
             'imu': None,
@@ -74,31 +78,53 @@ class StorageOptimizer(Node):
             self.get_logger().info(f"Initialized compressor with inputs: {img_shape}")
 
         cpu_load = psutil.cpu_percent() / 100.0
-        battery = 0.8  # placeholder
-        network_bandwidth = 0.5  # placeholder
-
         compression_level = self.policy.get_level()
 
-        encoded, decoded, self.hidden_state, reconstructed_img = self.compressor(
+        # --- Fused vector for current timestep ---
+        fused = self.compressor.fuse_modalities(
             self.latest_inputs['image'],
             self.latest_inputs['lidar'],
             self.latest_inputs['imu'],
             self.latest_inputs['audio'],
-            self.hidden_state
+            compression_level=compression_level
         )
+        self.input_seq.append(fused.unsqueeze(1))  # (B, 1, 256)
 
+        # --- Wait for full sequence ---
+        if len(self.input_seq) < self.seq_len:
+            return
+
+        sequence = torch.cat(self.input_seq[-self.seq_len:], dim=1)  # (B, seq_len, 256)
+
+        # --- Temporal compression via LSTM ---
+        lstm_out, self.hidden_state = self.compressor.lstm(sequence, self.hidden_state)
+
+        # Decode & reconstruct from latest timestep output
+        compressed_latent = lstm_out[:, -1, :]  # Take last frame
+        decoded = self.compressor.decoder(compressed_latent)
+
+        # Reconstruct image for quality check
+        img_feat_flat = self.compressor.image_decoder_fc(compressed_latent)
+        batch_size = self.latest_inputs['image'].size(0)
+        feat_map_H = self.latest_inputs['image'].size(2) // 4
+        feat_map_W = self.latest_inputs['image'].size(3) // 4
+        img_feat = img_feat_flat.view(batch_size, 32, feat_map_H, feat_map_W)
+        reconstructed_img = self.compressor.image_decoder_conv(img_feat)
+
+        # --- Quality Metrics ---
         quality = self.assessor.assess(
-            self.latest_inputs['image'],
-            reconstructed_img)
+            self.latest_inputs['image'], reconstructed_img)
+        self.get_logger().info(
+            f"Quality - LPIPS: {quality['lpips']:.4f}, PSNR: {quality['psnr']:.2f}, SSIM: {quality['ssim']:.4f}")
 
-        input_size = torch.prod(torch.tensor(self.latest_inputs['image'].shape)).item()
-        compressed_size = encoded.numel()
-        compression_ratio = compressed_size / input_size
+        input_size = self.latest_inputs['image'].numel() * 4  # bytes
+        compressed_size = compressed_latent.numel() * 4       # bytes
+        compression_ratio = input_size / compressed_size
 
         self.policy.update_policy(compression_ratio, quality)
 
         self.get_logger().info(
-            f"Compression ratio: {compression_ratio:.3f}, Quality: {quality:.4f}, Compression level: {compression_level:.2f}")
+            f"Compression ratio: {compression_ratio:.3f}, Compression level: {compression_level:.2f}")
 
 def main(args=None):
     rclpy.init(args=args)

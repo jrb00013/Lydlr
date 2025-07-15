@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
-import lpips  # Make sure lpips is installed via pip
+import lpips 
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 # --- Multi-Modal Encoders ---
 
@@ -92,6 +93,17 @@ class MultimodalCompressor(nn.Module):
             nn.ConvTranspose2d(16, image_shape[0], 4, stride=2, padding=1),  # Upsample H/2 -> H
             nn.Sigmoid()
         )
+    
+    def fuse_modalities(self, image, lidar, imu, audio, compression_level=1.0):
+        img_enc = self.image_encoder(image)
+        lidar_enc = self.lidar_encoder(lidar)
+        imu_enc = self.imu_encoder(imu)
+        audio_enc = self.audio_encoder(audio)
+
+        fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
+        fused = self.fusion_fc(fused)
+        fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
+        return fused  # shape: (B, 256)
 
     def forward(self, image, lidar, imu, audio, hidden_state=None):
         img_enc = self.image_encoder(image)
@@ -100,7 +112,9 @@ class MultimodalCompressor(nn.Module):
         audio_enc = self.audio_encoder(audio)
 
         fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
-        fused = self.fusion_fc(fused).unsqueeze(1)  # Add seq dim for LSTM (B,1,256)
+        fused = self.fusion_fc(fused)  # Add seq dim for LSTM (B,1,256)
+        fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
+        lstm_out, hidden_state = self.lstm(fused, hidden_state)
 
         # Run LSTM for temporal context
         lstm_out, hidden_state = self.lstm(fused, hidden_state)  # lstm_out (B,1,128)
@@ -110,8 +124,8 @@ class MultimodalCompressor(nn.Module):
          # --- Image reconstruction from latent for quality assessment ---
         img_feat_flat = self.image_decoder_fc(lstm_out.squeeze(1))
         batch_size = image.size(0)
-        feat_map_H = image.size(1) // 4
-        feat_map_W = image.size(2) // 4
+        feat_map_H = image.size(2) // 4
+        feat_map_W = image.size(3) // 4
         img_feat = img_feat_flat.view(batch_size, 32, feat_map_H, feat_map_W)
         reconstructed_img = self.image_decoder_conv(img_feat)
 
@@ -124,14 +138,20 @@ class CompressionPolicy:
         self.compression_level = 1.0  # 1.0=full quality, <1.0 more compression
         self.reward = 0.0
 
-    def update_policy(self, compression_ratio, quality_score):
-        # Simple reward: balance compression and quality (placeholder)
-        self.reward = quality_score / (compression_ratio + 1e-6)
-        # Adjust compression level based on reward (stub)
-        if self.reward < 0.5:
-            self.compression_level = min(1.0, self.compression_level + 0.1)
+    def update_policy(self, compression_ratio, quality_dict):
+        lpips = quality_dict['lpips']
+        psnr = quality_dict['psnr']
+        ssim = quality_dict['ssim']
+
+        # Basic score: combine multiple metrics
+        quality_score = (1 - lpips) * 0.5 + psnr / 50.0 * 0.25 + ssim * 0.25
+        reward = quality_score / (compression_ratio + 1e-6)
+
+        # Reinforcement stub: simple gradient ascent
+        if reward < 0.5:
+            self.compression_level = min(1.0, self.compression_level + 0.05)
         else:
-            self.compression_level = max(0.1, self.compression_level - 0.1)
+            self.compression_level = max(0.1, self.compression_level - 0.05)
 
     def get_level(self):
         return self.compression_level
@@ -144,12 +164,18 @@ class QualityAssessor:
         self.device = device
 
     def assess(self, img1, img2):
-        # img1 and img2: torch tensors normalized to [-1,1], shape (B,C,H,W)
-        img1 = (img1 * 2) - 1
-        img2 = (img2 * 2) - 1
-        with torch.no_grad():
-            score = self.loss_fn(img1.to(self.device), img2.to(self.device))
-        return score.item()
+        img1_np = img1.squeeze().permute(1,2,0).cpu().numpy()
+        img2_np = img2.squeeze().permute(1,2,0).cpu().numpy()
+
+        psnr = peak_signal_noise_ratio(img1_np, img2_np, data_range=1.0)
+        ssim = structural_similarity(img1_np, img2_np, multichannel=True)
+
+        lpips_score = self.loss_fn((img1 * 2 - 1), (img2 * 2 - 1)).mean().item()
+        return {
+        "lpips": lpips_score,
+        "psnr": psnr,
+        "ssim": ssim
+        }
 
 # --- Quantization & Export Utility ---
 
