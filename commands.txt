@@ -1,6 +1,7 @@
 # =========================================
 # ROS 2 + Docker Workspace Setup Guide
-# Target: MacOS with Docker and ROS 2 Humble
+# Target: MacOS with Docker and ROS 2 Humble, 
+# Utilizing Homebrew and pip
 # =========================================
 
 # -----------------------------------------
@@ -124,7 +125,7 @@ entry_points={
 
 
 # -----------------------------------------
-# 11. REQUIRED: Rebuild & Source Workspace Again
+# Rebuild & Source Workspace Again Each Time After Creating a New Node and edit scripts.py
 # -----------------------------------------
 cd /root/lydlr/lydlr_ws
 colcon build --symlink-install --packages-select lydlr_ai
