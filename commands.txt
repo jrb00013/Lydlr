@@ -4,14 +4,16 @@
 # =========================================
 
 # -----------------------------------------
-# 1. Pull ROS 2 Docker Image
+# 0. Pull ROS 2 Docker Image
 # -----------------------------------------
 docker pull osrf/ros:humble-desktop
 
 # -----------------------------------------
-# 2. Run ROS 2 Container with Volume Mount
+# 1. REQUIRED: Run ROS 2 Container with Volume Mount
 # -----------------------------------------
-docker run -it --name ros2_ai \
+docker run -it \
+    --name ros2_ai \
+    -e DISPLAY=host.docker.internal:0 \
     -v ~/Documents/lydlr:/root/lydlr \
     osrf/ros:humble-desktop
 
@@ -23,8 +25,15 @@ Re-Run:
 docker start -ai ros2_ai
 cd /root/lydlr/lydlr_ws
 
+
+# ----------------------------------------
+# 2. REQUIRED: Activate the virtual environment
+# ----------------------------------------
+source ~/lydlr/lydlr_ws/.venv/bin/activate
+
+
 # -----------------------------------------
-# 3. Source ROS 2 Environment
+# 3. REQUIRED: Source ROS 2 Environment
 # Inside the running container:
 # -----------------------------------------
 source /opt/ros/humble/setup.bash
@@ -128,15 +137,18 @@ ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
 
 ####################################
 
-a. Create a virtual environment
-From your workspace root (~/lydlr/lydlr_ws):
+a. Create a Python virtual environment
+From the workspace root lydlr_ws:
 
+cd ~/lydlr/lydlr_ws
 python3 -m venv .venv
 This creates a .venv folder that contains an isolated Python environment.
 
 b. Activate the virtual environment
-source .venv/bin/activate
+source ~/lydlr/lydlr_ws/.venv/bin/activate
 
+
+####################################
 
 Always run " colcon build " in the workspace folder. 
 But you can run any ros2 node in any directory, by using source install/setup.bash
