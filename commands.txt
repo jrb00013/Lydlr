@@ -9,8 +9,29 @@
 docker pull osrf/ros:humble-desktop
 
 # -----------------------------------------
-# 1. REQUIRED: Run ROS 2 Container with Volume Mount
+# 1. REQUIRED: Build and Run Docker Container for ROS2 with Volume Mount
 # -----------------------------------------
+
+docker build -t ros2_xvfb .
+
+docker run -it \
+    --name ros2_ai \
+    -v ~/Documents/lydlr:/root/lydlr \
+    ros2_xvfb \
+    bash -c "export PYTHONPATH=\$PYTHONPATH:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages && \
+             export XDG_RUNTIME_DIR=/tmp/runtime-root && \
+             mkdir -p \$XDG_RUNTIME_DIR && \
+             chmod 700 \$XDG_RUNTIME_DIR && \
+             Xvfb :99 -screen 0 1024x768x24 & \
+             export DISPLAY=:99 && \
+             source /opt/ros/humble/setup.bash && \
+             cd /root/lydlr/lydlr_ws && \
+             exec bash"
+
+
+or 
+
+
 docker run -it \
     --name ros2_ai \
     -e DISPLAY=host.docker.internal:0 \
@@ -29,6 +50,7 @@ cd /root/lydlr/lydlr_ws
 # ----------------------------------------
 # 2. REQUIRED: Activate the virtual environment
 # ----------------------------------------
+cd ~/lydlr/lydlr_ws
 source ~/lydlr/lydlr_ws/.venv/bin/activate
 
 
@@ -44,8 +66,6 @@ source /opt/ros/humble/setup.bash
 # -----------------------------------------
 mkdir -p /root/lydlr/lydlr_ws/src
 cd /root/lydlr/lydlr_ws
-colcon build --symlink-install
-source install/setup.bash
 
 # -----------------------------------------
 # 5. Create a New Package
@@ -60,28 +80,38 @@ ros2 pkg create --build-type ament_python \
 # If you forget `--`, it will think your package name is a dependency.
 
 # -----------------------------------------
-# 6. Build the Workspace
+# 6. REQUIRED: Build the Workspace
 # -----------------------------------------
 cd /root/lydlr/lydlr_ws
-colcon build --symlink-install
+colcon build --symlink-install --packages-select lydlr_ai
+
+
 
 # -----------------------------------------
-# 7. Source the Workspace
+# 7. REQUIRED: Source the Workspace 
 # -----------------------------------------
 source install/setup.bash
 
-# -----------------------------------------
-# 8. Create Your Python Node
-# Edit this file:
-# /root/lydlr/lydlr_ws/src/lydlr_ai/lydlr_ai/your_node.py
-# Add a main() function
 
 # -----------------------------------------
-# 9. Register Your Node
+# 8. REQUIRED: Source the Python Enviornment 
+# -----------------------------------------
+source .venv/bin/activate
+
+
+# -----------------------------------------
+# 9. Create Your Python Node
+# Edit this file:
+# /root/lydlr/lydlr_ws/src/lydlr_ai/lydlr_ai/your_node.py
+
+
+
+# -----------------------------------------
+# 10. REQUIRED: Register Your Node
 
 # In lydlr_ai/setup.py, add:
 
-your_node_name is the python file without the .py
+
 
 # -----------------------------------------
 entry_points={
@@ -90,17 +120,36 @@ entry_points={
     ],
 },
 
+* your_node_name is the python file without the .py *
+
+
 # -----------------------------------------
-# 10. Rebuild & Run the Node
+# 11. REQUIRED: Rebuild & Source Workspace Again
 # -----------------------------------------
 cd /root/lydlr/lydlr_ws
-colcon build --symlink-install
-source install/setup.bash
-
-ros2 run lydlr_ai your_node_name
+colcon build --symlink-install --packages-select lydlr_ai
+source install/setup.bash         // source workspace
 
 # -----------------------------------------
-# 11. Stopping & Restarting Container
+# 11. REQUIRED: Change Python Interpreter and Set Environment Variables
+# -----------------------------------------
+export PYTHONPATH=$PYTHONPATH:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages
+export XDG_RUNTIME_DIR=/tmp/runtime-root
+mkdir -p $XDG_RUNTIME_DIR
+chmod 700 $XDG_RUNTIME_DIR
+Xvfb :99 -screen 0 1024x768x24 &
+export DISPLAY=:99
+
+
+# -----------------------------------------
+# 12. REQUIRED: Run the ROS2 Node
+# -----------------------------------------
+source install/setup.bash  
+ros2 run lydlr_ai your_node_name
+
+
+# -----------------------------------------
+#  Stopping & Restarting Docker Container
 # -----------------------------------------
 # Exit container:
 exit
@@ -115,13 +164,15 @@ docker start -ai ros2_ai
 docker exec -it ros2_ai bash
 
 # -----------------------------------------
-# 12. Deleting Container (if needed)
+#  Deleting Docker Container (if needed)
 # -----------------------------------------
 docker stop ros2_ai
 docker rm ros2_ai
 
 
+# -----------------------------------------
 # Sending Test Topic for ROS2 Publishing
+# -----------------------------------------
 
 ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
   header: {frame_id: 'fake_camera'},
@@ -134,10 +185,10 @@ ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
 }"
 
 
-
 ####################################
+Python Virtual Environments
 
-a. Create a Python virtual environment
+a. Creating a Python Virtual Environment: 
 From the workspace root lydlr_ws:
 
 cd ~/lydlr/lydlr_ws
@@ -152,3 +203,16 @@ source ~/lydlr/lydlr_ws/.venv/bin/activate
 
 Always run " colcon build " in the workspace folder. 
 But you can run any ros2 node in any directory, by using source install/setup.bash
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CLEAN WORKSPACE:
+
+colcon build --packages-select lydlr_ai --cmake-clean-cache
+
+Full Clean Workspace:
+
+cd ~/lydlr/lydlr_ws
+rm -rf build/ install/ log/
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

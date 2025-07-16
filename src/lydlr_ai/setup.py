@@ -1,4 +1,7 @@
 from setuptools import find_packages, setup
+import os
+import sys
+
 
 package_name = 'lydlr_ai'
 
@@ -11,7 +14,20 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools', 'rclpy', 'torch'],
+    install_requires=[
+        'setuptools',
+        'rclpy',
+        'torch',
+        'torchvision',
+        'torchaudio',
+        'numpy',
+        'opencv-python',
+        'open3d',
+        'librosa',
+        'scikit-image',
+        'scipy',
+        'pyyaml'
+    ],
     zip_safe=True,
     maintainer='root',
     maintainer_email='root@todo.todo',

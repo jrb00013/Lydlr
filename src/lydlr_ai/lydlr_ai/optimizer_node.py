@@ -34,7 +34,7 @@ class StorageOptimizer(Node):
         self.create_subscription(Image, '/camera/image_raw', self.camera_callback, 10)
         self.create_subscription(Float32, '/imu/data', self.imu_callback, 10)
         self.create_subscription(Float32, '/lidar/data', self.lidar_callback, 10)
-        self.create_subscription(Float32, '/audio/data', self.audio_callback, 10)
+        self.create_subscription(Float32MultiArray, '/audio/data', self.audio_callback, 10)
 
         self.compressor = None
         self.policy = CompressionPolicy()
@@ -48,7 +48,7 @@ class StorageOptimizer(Node):
         # Initialize PositionalEncoder and transformer
         self.d_model = 256
         self.pos_encoder = PositionalEncoding(d_model=self.d_model, max_len=50)
-        encoder_layer = TransformerEncoderLayer(d_model=self.d_model, nhead=4)
+        encoder_layer = TransformerEncoderLayer(d_model=self.d_model, nhead=4, batch_first=True)
         self.transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
         # Vae Initialization
@@ -80,6 +80,7 @@ class StorageOptimizer(Node):
 
 
     def camera_callback(self, msg):
+        self.get_logger().info("📸 Received image message")
         try:
             if msg.encoding == 'rgb8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
@@ -104,12 +105,14 @@ class StorageOptimizer(Node):
             self.get_logger().error(f"Camera processing failed: {e}")
 
     def imu_callback(self, msg):
+        self.get_logger().info("📈 Received IMU message")
         imu_tensor = torch.tensor([[msg.data]*6], dtype=torch.float32)
         imu_tensor = (imu_tensor - imu_tensor.mean()) / (imu_tensor.std() + 1e-6)
         self.latest_inputs['imu'] = imu_tensor
         self.try_compress() # [ax, ay, az, gx, gy, gz]
 
     def lidar_callback(self, msg):
+        self.get_logger().info("🛞 Received LiDAR message")
         lidar_tensor = torch.tensor([[msg.data]*1024], dtype=torch.float32)
         lidar_tensor = (lidar_tensor - lidar_tensor.mean()) / (lidar_tensor.std() + 1e-6)
         self.latest_inputs['lidar'] = lidar_tensor
@@ -117,6 +120,7 @@ class StorageOptimizer(Node):
         self.try_compress()
 
     def audio_callback(self, msg: Float32MultiArray):
+        self.get_logger().info("🎤 Received audio message")
         waveform = torch.tensor(msg.data).view(1, -1)    # shape: (1, N)
         spec = self.mel(waveform)     # shape: (1, 64, T)
         spec = spec.log2().clamp(min=-20) / 20    # normalize
