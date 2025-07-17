@@ -32,7 +32,7 @@ docker run -it \
 
 or 
 
-Plain Docker Container Launch:
+# Plain Docker Container Launch:
 
 docker run -it \
     --name ros2_ai \
@@ -41,7 +41,8 @@ docker run -it \
     osrf/ros:humble-desktop
     
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Re-entering the Already Running Docker container:
+
+# Re-entering the Already Running Docker container:
 docker exec -it ros2_ai bash -c "cd /root/lydlr/lydlr_ws && bash"
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -80,7 +81,7 @@ ros2 pkg create --build-type ament_python \
     --dependencies rclpy std_msgs sensor_msgs \
     -- lydlr_ai
 
-# If you forget `--`, it will think your package name is a dependency.
+# If you forget `--` it will think your package name is a dependency
 
 # -----------------------------------------
 # 6. REQUIRED: Build the Workspace
@@ -126,9 +127,8 @@ entry_points={
 * your_node_name is the python file without the .py *
 
 
-# -----------------------------------------
+
 # Rebuild & Source Workspace Again Each Time After Creating a New Node and edit scripts.py
-# -----------------------------------------
 cd /root/lydlr/lydlr_ws
 colcon build --symlink-install --packages-select lydlr_ai
 source install/setup.bash         // source workspace
@@ -144,9 +144,12 @@ Xvfb :99 -screen 0 1024x768x24 & \
 export DISPLAY=:99 && \
 source /root/lydlr/lydlr_ws/install/setup.bash
 
+# 12. Start xvfb 
+#  
+xvfb-run -s "-screen 0 1024x768x24" bash
 
 # -----------------------------------------
-# 12. REQUIRED: Run the ROS2 Node
+# 13. REQUIRED: Run the ROS2 Node
 # ----------------------------------------- 
 ros2 run lydlr_ai your_node_name
 
@@ -173,9 +176,88 @@ docker stop ros2_ai
 docker rm ros2_ai
 
 
+
 # -----------------------------------------
+#              DEBUGGING
+# -----------------------------------------
+
+
+# STEP-BY-STEP DEBUGGING GUIDE FOR optimizer_node.py
+
+# 1. Open your devcontainer in VS Code 
+#   
+
+- Open the command pallete with ctrl+shift+p or cmd+shift+p 
+
+- Type in the command Docker: Reopen Container
+
+
+#    Make sure it's connected and the terminal says something like:
+#    "Connected to dev container: lydlr_ws"
+
+
+
+# 2. Open a new integrated terminal in VS Code
+#    (Terminal > New Terminal or Ctrl+`)
+
+# 3. Source your ROS2 workspace and Build with Colcon Build
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install --packages-select lydlr_ai
+source install/setup.bash
+
+
+
+# 4. Run the enviornment setup commands
+#
+export PYTHONPATH=$PYTHONPATH:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages && \
+export XDG_RUNTIME_DIR=/tmp/runtime-root && \
+mkdir -p $XDG_RUNTIME_DIR && \
+chmod 700 $XDG_RUNTIME_DIR && \
+Xvfb :99 -screen 0 1024x768x24 & \
+export DISPLAY=:99 && \
+source .venv/bin/activate && \
+source /root/lydlr/lydlr_ws/install/setup.bash
+
+
+# 5. Run the synthetic input publisher node (in terminal 1)
+#    Simulated Real-time sensor data 
+ros2 run lydlr_ai synthetic_multimodal_publisher.py
+
+# 6. Open a SECOND terminal (Terminal > New Terminal)
+#    This is where we’ll debug optimizer_node.py
+
+# 7. Start xvfb 
+#  
+xvfb-run -s "-screen 0 1024x768x24" bash
+
+# 8. In VS Code, go to the Run & Debug panel (Ctrl+Shift+D)
+#    Select: "Debug ROS2 optimizer_node (launch)"
+
+# 9. Hit the green "Run" button ▶️
+#    OR press F5 to launch the debugger
+
+# 10. Add breakpoints in optimizer_node.py where needed
+#    Debugging starts and shows variable values, stack, etc.
+
+# 11. When finished, stop both terminals with Ctrl+C
+#     You can restart this process anytime.
+
+# ----------------------------
+# FILE STRUCTURE REFERENCE
+# optimizer_node.py:     ${workspaceFolder}/src/lydlr_ai/lydlr_ai/optimizer_node.py
+# synthetic_publisher.py:${workspaceFolder}/src/lydlr_ai/lydlr_ai/synthetic_multimodal_publisher.py
+
+# ----------------------------
+# Optional Debug Tips:
+# - You can use "Debug Console" to inspect variables
+# - Use step-over (F10), step-in (F11) for line-by-line tracing
+# - "justMyCode": false lets you dive into libraries if needed
+
+
+
+
+
 # Sending Test Topic for ROS2 Publishing
-# -----------------------------------------
 
 ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
   header: {frame_id: 'fake_camera'},
@@ -186,6 +268,10 @@ ros2 topic pub /camera/image_raw sensor_msgs/msg/Image "{
   step: 2,
   data: [0, 50, 100, 150, 200, 255]
 }"
+
+
+
+
 
 
 ####################################
