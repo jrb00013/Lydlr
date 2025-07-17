@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: ROS2 StorageOptimizer",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/lydlr_ai/lydlr_ai/optimizer_node.py",
+            "args": [],
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${env:PYTHONPATH}:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages",
+                "XDG_RUNTIME_DIR": "/tmp/runtime-root",
+                "DISPLAY": ":99"
+            }
+        }
+    ]
+}

@@ -85,16 +85,22 @@ class StorageOptimizer(Node):
             if msg.encoding == 'rgb8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
                 img_np = img_np / 255.0
-                img_tensor = torch.tensor(img_np, dtype=torch.float32).permute(2,0,1).unsqueeze(0)
-                img_tensor = (img_tensor - 0.5) / 0.5
+                img_tensor = torch.tensor(img_np, dtype=torch.float32).permute(2,0,1)  # (3,H,W)
             elif msg.encoding == 'mono8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width) / 255.0
-                img_tensor = torch.tensor(img_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-                img_tensor = (img_tensor - 0.5) / 0.5
+                img_tensor = torch.tensorimg_np, dtype=torch.float32.unsqueeze(0)
+                img_tensor = img_tensor.repeat(3, 1, 1)
             else:
                 self.get_logger().warn(f"Unsupported encoding: {msg.encoding}")
                 return
             
+            # Resize to (3,128,128)
+            img_tensor = TF.resize(img_tensor, size=(128, 128), antialias=True)
+            # Normalize to [-1,1]
+            img_tensor = (img_tensor - 0.5) / 0.5
+            # Add batch dimensions for the tensor: (1,3,128,128)
+            img_tensor = img_tensor.unsqueeze(0)
+
             if self.vae is None:
                 _, C, H, W = img_tensor.shape
                 self.vae = VAE(input_channels=C, latent_dim=128, input_height=H, input_width=W).to(self.device)

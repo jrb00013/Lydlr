@@ -32,18 +32,20 @@ docker run -it \
 
 or 
 
+Plain Docker Container Launch:
 
 docker run -it \
     --name ros2_ai \
     -e DISPLAY=host.docker.internal:0 \
     -v ~/Documents/lydlr:/root/lydlr \
     osrf/ros:humble-desktop
-
-
-Start there directly:
+    
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Re-entering the Already Running Docker container:
 docker exec -it ros2_ai bash -c "cd /root/lydlr/lydlr_ws && bash"
 
-Re-Run:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Restart Docker Container and Enter:
 docker start -ai ros2_ai
 cd /root/lydlr/lydlr_ws
 
@@ -132,20 +134,20 @@ colcon build --symlink-install --packages-select lydlr_ai
 source install/setup.bash         // source workspace
 
 # -----------------------------------------
-# 11. REQUIRED: Change Python Interpreter and Set Environment Variables
+# 11. REQUIRED: Change Python Interpreter and Set Environment Variables + Source Again
 # -----------------------------------------
-export PYTHONPATH=$PYTHONPATH:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages
-export XDG_RUNTIME_DIR=/tmp/runtime-root
-mkdir -p $XDG_RUNTIME_DIR
-chmod 700 $XDG_RUNTIME_DIR
-Xvfb :99 -screen 0 1024x768x24 &
-export DISPLAY=:99
+export PYTHONPATH=$PYTHONPATH:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages && \
+export XDG_RUNTIME_DIR=/tmp/runtime-root && \
+mkdir -p $XDG_RUNTIME_DIR && \
+chmod 700 $XDG_RUNTIME_DIR && \
+Xvfb :99 -screen 0 1024x768x24 & \
+export DISPLAY=:99 && \
+source /root/lydlr/lydlr_ws/install/setup.bash
 
 
 # -----------------------------------------
 # 12. REQUIRED: Run the ROS2 Node
-# -----------------------------------------
-source install/setup.bash  
+# ----------------------------------------- 
 ros2 run lydlr_ai your_node_name
 
 

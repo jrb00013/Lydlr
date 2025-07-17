@@ -22,7 +22,7 @@ def lidar_to_pointcloud(lidar_tensor, sweep_angle=np.pi, points_per_ring=32):
         xyz = np.stack([x, y, z], axis=1)
         xyz_batches.append(xyz)
 
-    return torch.tensor(xyz_batches, dtype=torch.float32)     # (B, N, 3)
+    return torch.from_numpy(np.array(xyz_batches)).float()     # (B, N, 3)
 
 def visualize_voxel_lidar(lidar_tensor, voxel_size=0.2):
     pointcloud = lidar_to_pointcloud(lidar_tensor)[0].numpy()
