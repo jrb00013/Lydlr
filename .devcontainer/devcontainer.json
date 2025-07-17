@@ -1,0 +1,21 @@
+{
+    "name": "Lydlr ROS2 Devcontainer",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "workspaceFolder": "/root/lydlr/lydlr_ws",
+    "settings": {
+      "python.pythonPath": "/root/lydlr/lydlr_ws/.venv/bin/python",
+      "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "extensions": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "ms-azuretools.vscode-docker",
+      "ms-vscode.cpptools"
+    ],
+    "postCreateCommand": "/root/lydlr/lydlr_ws/.venv/bin/pip install -r requirements.txt || true",
+    "remoteUser": "root"
+  }
+  

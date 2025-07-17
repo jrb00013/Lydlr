@@ -1,18 +1,48 @@
 {
     "version": "0.2.0",
     "configurations": [
-        {
-            "name": "Python: ROS2 StorageOptimizer",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/lydlr_ai/lydlr_ai/optimizer_node.py",
-            "args": [],
-            "console": "integratedTerminal",
-            "env": {
-                "PYTHONPATH": "${env:PYTHONPATH}:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages",
-                "XDG_RUNTIME_DIR": "/tmp/runtime-root",
-                "DISPLAY": ":99"
-            }
-        }
+      {
+        "name": "Debug ROS2 optimizer_node (launch)",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/lydlr_ai/optimizer_node.py",
+        "console": "integratedTerminal",
+        "args": [],
+        "env": {
+          "PYTHONPATH": "${env:PYTHONPATH}:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages",
+          "DISPLAY": ":99",
+          "XDG_RUNTIME_DIR": "/tmp/runtime-root",
+          "PYTORCH_JIT_LOG_LEVEL": "0",
+          "TORCH_CPP_LOG_LEVEL": "0"
+        },
+        "envFile": "${workspaceFolder}/.env",
+        "justMyCode": false,
+        "preLaunchTask": "source-ros2-env",
+        "stopOnEntry": false,
+        "debugOptions": ["RedirectOutput"],
+        "cwd": "${workspaceFolder}",
+        "pathMappings": [
+          {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "/root/lydlr/lydlr_ws/src/lydlr_ai"
+          }
+        ]
+      },
+      {
+        "name": "Attach to running Python process (debugpy)",
+        "type": "python",
+        "request": "attach",
+        "connect": {
+          "host": "localhost",
+          "port": 5678
+        },
+        "pathMappings": [
+          {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "/root/lydlr/lydlr_ws/src/lydlr_ai"
+          }
+        ]
+      }
     ]
-}
+  }
+  
