@@ -114,20 +114,26 @@ class MultimodalCompressor(nn.Module):
             nn.ConvTranspose2d(16, image_shape[0], 4, stride=2, padding=1),  # Upsample H/2 -> H
             nn.Sigmoid()
         )
+
+        self.vae_compress = VAE(feature_dim=256, latent_dim=64) 
     
     def fuse_modalities(self, image, lidar, imu, audio, compression_level=1.0):
         img_enc = self.image_encoder(image)
-
-        lidar_xyz = lidar_to_pointcloud(lidar)  # shape: (B, N, 3)
+        lidar_xyz = lidar_to_pointcloud(lidar)  
         lidar_enc = self.lidar_encoder(lidar_xyz.view(lidar.size(0), -1))
-       
         imu_enc = self.imu_encoder(imu)
         audio_enc = self.audio_encoder(audio)
 
         fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
         fused = self.fusion_fc(fused)
         fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
-        return fused  # shape: (B, 256)
+
+        # Pass through VAE for compression
+        mu, logvar = self.vae_compress.encode(fused)
+        z = self.vae_compress.reparameterize(mu, logvar)
+        recon_fused = self.vae_compress.decode(z)
+
+        return fused, z, recon_fused, mu, logvar
 
     def forward(self, image, lidar, imu, audio, hidden_state=None, compression_level=1.0):
         img_enc = self.image_encoder(image)

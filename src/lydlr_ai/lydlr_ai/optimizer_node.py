@@ -101,9 +101,9 @@ class StorageOptimizer(Node):
             # Add batch dimensions for the tensor: (1,3,128,128)
             img_tensor = img_tensor.unsqueeze(0)
 
-            if self.vae is None:
-                _, C, H, W = img_tensor.shape
-                self.vae = VAE(input_channels=C, latent_dim=128, input_height=H, input_width=W).to(self.device)
+            # if self.vae is None:
+            #     _, C, H, W = img_tensor.shape
+            #     self.vae = VAE(input_channels=C, latent_dim=128, input_height=H, input_width=W).to(self.device)
 
             self.latest_inputs['image'] = img_tensor.to(self.device)
             self.try_compress()
@@ -178,13 +178,19 @@ class StorageOptimizer(Node):
         compression_level = self.policy.get_level()
 
         # --- Fused vector for current timestep ---
-        fused = self.compressor.fuse_modalities(
-            self.latest_inputs['image'],
-            self.latest_inputs['lidar'],
-            self.latest_inputs['imu'],
-            self.latest_inputs['audio'],
-            compression_level=compression_level
-        )
+        with torch.no_grad():
+            fused, z, recon_fused, mu, logvar = self.compressor.fuse_modalities(
+                self.latest_inputs['image'],
+                self.latest_inputs['lidar'],
+                self.latest_inputs['imu'],
+                self.latest_inputs['audio'],
+                compression_level
+            )
+            loss_vae = vae_loss(recon_fused, fused, mu, logvar)
+        self.get_logger().info(f"Fused‑VAE loss: {loss_vae.item():.4f}")
+        
+          # Decode & reconstruct from latest timestep output
+        compressed_latent = z
 
         if self.previous_fused is None:
             delta_fused = fused
@@ -214,10 +220,8 @@ class StorageOptimizer(Node):
         sequence = self.pos_encoder(sequence)
         transformer_out = self.transformer(sequence)  # (seq_len, B, 256)
         
-        # Decode & reconstruct from latest timestep output. Utilizing chunks
-        compressed_latent = transformer_out[-1] # Take the last frame man
-
         # Split compressed latent into 4 chunks for progressive decoding/storage
+        #compressed_latent = transformer_out[-1] # Take the last frame man
         chunks = torch.chunk(compressed_latent, chunks=4, dim=1)  # split latent ino 4 parts along feature dim
         compressed_chunks = [zlib.compress(c.cpu().numpy().tobytes()) for c in chunks]
         decoded = self.compressor.decoder(compressed_latent)
