@@ -1,4 +1,11 @@
-## Installation and Setup (continued)
+# Lydlr AI — Multimodal Sensor Data Compression with Adaptive Real-Time Optimization
+
+## Installation and Setup
+
+## Overview
+_Target: macOS + Docker + ROS 2 Humble + Python venv_
+
+Lydlr is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation using convolutional and recurrent neural networks. The system leverages temporal context through LSTM layers to improve compression efficiency by learning patterns over time. A reinforcement learning-based controller dynamically adjusts compression levels based on system conditions such as CPU load, battery status, and network bandwidth, ensuring an optimal balance between data quality and resource usage. Additionally, a real-time quality assessment module uses perceptual metrics (LPIPS) to monitor reconstruction fidelity, enabling adaptive tuning on the fly. Synthetic sensor data streams simulate diverse environments for thorough testing and development. The entire pipeline is designed for deployment on edge devices like Raspberry Pi or NVIDIA Jetson, with model quantization and export capabilities for efficient execution on constrained hardware.
 
 ### ROS 2 + Docker Workspace Setup Guide  
 _Target: macOS + Docker + ROS 2 Humble + Python venv_
