@@ -4,19 +4,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VAE(nn.Module):
-    def __init__(self, feature_dim=256, latent_dim=64):
+    def __init__(self, feature_dim=512, latent_dim=64):
         super().__init__()
         self.feature_dim = feature_dim
         self.latent_dim = latent_dim
 
-        # Encoder: fuse -> latent (mu/logvar)
+        # Encoder: fuse latent (mu/logvar)
         self.encoder_fc = nn.Sequential(
             nn.Linear(feature_dim, 256),
             nn.ReLU(),
             nn.Linear(256, latent_dim * 2)  # outputs both mu and logvar stacked
         )
 
-        # Decoder: latent -> reconstruct fused feature
+        # Decoder: latent reconstruct fused feature
         self.decoder_fc = nn.Sequential(
             nn.Linear(latent_dim, 256),
             nn.ReLU(),

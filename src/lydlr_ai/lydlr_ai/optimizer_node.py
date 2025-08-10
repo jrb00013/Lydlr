@@ -1,3 +1,4 @@
+# optimizer_node.py
 import psutil 
 import time
 import os
@@ -14,6 +15,8 @@ import torchaudio
 from torchaudio.transforms import MelSpectrogram
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import torchvision.transforms.functional as TF
+import torchvision.models as models
+import torchvision.transforms as transforms
 import numpy as np
 
 from lydlr_ai.utils.voxel_utils import visualize_voxel_lidar
@@ -52,15 +55,36 @@ class StorageOptimizer(Node):
         self.transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
         # Vae Initialization
-        self.vae = None  # will init on first image shape
-        self.device = torch.device('cpu')
+        # Image transforms: resize + normalization as expected by pretrained ResNet
+        self.img_transform = transforms.Compose([
+            transforms.Resize((224, 224)),  # ResNet expects 224x224 images
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet mean/std
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+
+        # Load pretrained ResNet18 backbone, remove last fc layer
+        backbone = models.resnet18(pretrained=True)
+        modules = list(backbone.children())[:-1]  # Remove the final FC layer
+        self.feature_extractor = torch.nn.Sequential(*modules)
+        self.feature_extractor.eval()
+        
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False  # freeze backbone
+        
+        # Device initialization
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.feature_extractor.to(self.device)
+
+        # VAE input feature_dim should match backbone output (512 for ResNet18)
+        self.vae = VAE(feature_dim=512, latent_dim=128).to(self.device)
 
         # Mel Spectograph
         self.mel = MelSpectrogram(sample_rate=16000, n_fft=400, hop_length=160, n_mels=64)
 
         # Quality Predictor Initialization
         self.quality_predictor = QualityPredictor().to(self.device)
-
+        self.quality_predictor.to(self.device)
+        
         # Tracking previous fused state
         self.previous_fused = None
 
@@ -78,50 +102,49 @@ class StorageOptimizer(Node):
         self.save_queue = queue.Queue()
         threading.Thread(target=self._save_worker, daemon=True).start()
 
-
     def camera_callback(self, msg):
-        self.get_logger().info("📸 Received image message")
+        self.get_logger().info("Received image message")
         try:
             if msg.encoding == 'rgb8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
-                img_np = img_np / 255.0
-                img_tensor = torch.tensor(img_np, dtype=torch.float32).permute(2,0,1)  # (3,H,W)
+                img_np = img_np.astype(np.float32) / 255.0
+                img_tensor = torch.tensor(img_np).permute(2,0,1)  # (3,H,W)
             elif msg.encoding == 'mono8':
                 img_np = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width) / 255.0
-                img_tensor = torch.tensorimg_np, dtype=torch.float32.unsqueeze(0)
-                img_tensor = img_tensor.repeat(3, 1, 1)
+                img_tensor = torch.tensor(img_np).unsqueeze(0).repeat(3,1,1)  # (3,H,W)
             else:
                 self.get_logger().warn(f"Unsupported encoding: {msg.encoding}")
                 return
-            
-            # Resize to (3,128,128)
-            img_tensor = TF.resize(img_tensor, size=(128, 128), antialias=True)
-            # Normalize to [-1,1]
-            img_tensor = (img_tensor - 0.5) / 0.5
-            # Add batch dimensions for the tensor: (1,3,128,128)
-            img_tensor = img_tensor.unsqueeze(0)
 
-            # if self.vae is None:
-            #     _, C, H, W = img_tensor.shape
-            #     self.vae = VAE(input_channels=C, latent_dim=128, input_height=H, input_width=W).to(self.device)
+            # Resize to 224x224 as required by ResNet
+            img_tensor = transforms.functional.resize(img_tensor, (224, 224))
 
-            self.latest_inputs['image'] = img_tensor.to(self.device)
+            # Normalize using ImageNet stats
+            img_tensor = self.img_transform(img_tensor)
+
+            img_tensor = img_tensor.unsqueeze(0).to(self.device)  # (1,3,224,224)
+
+            with torch.no_grad():
+                features = self.feature_extractor(img_tensor)  # (1, 512, 1, 1)
+                features = features.view(features.size(0), -1)  # flatten to (1, 512)
+
+            self.latest_inputs['image'] = features  # pass the 512-dim feature vector
             self.try_compress()
         except Exception as e:
             self.get_logger().error(f"Camera processing failed: {e}")
-
+            
     def imu_callback(self, msg):
         self.get_logger().info("📈 Received IMU message")
         imu_tensor = torch.tensor([[msg.data]*6], dtype=torch.float32)
         imu_tensor = (imu_tensor - imu_tensor.mean()) / (imu_tensor.std() + 1e-6)
-        self.latest_inputs['imu'] = imu_tensor
+        self.latest_inputs['imu'] = imu_tensor.to(self.device)
         self.try_compress() # [ax, ay, az, gx, gy, gz]
 
     def lidar_callback(self, msg):
         self.get_logger().info("🛞 Received LiDAR message")
         lidar_tensor = torch.tensor([[msg.data]*1024], dtype=torch.float32)
         lidar_tensor = (lidar_tensor - lidar_tensor.mean()) / (lidar_tensor.std() + 1e-6)
-        self.latest_inputs['lidar'] = lidar_tensor
+        self.latest_inputs['lidar'] = lidar_tensor.to(self.device)
         visualize_voxel_lidar(self.latest_inputs['lidar'])
         self.try_compress()
 
@@ -131,7 +154,7 @@ class StorageOptimizer(Node):
         spec = self.mel(waveform)     # shape: (1, 64, T)
         spec = spec.log2().clamp(min=-20) / 20    # normalize
         spec = (spec - spec.mean()) / (spec.std() + 1e-6) # normalize further
-        self.latest_inputs['audio'] = spec.unsqueeze(0)     # (B, 1, 64, T)
+        self.latest_inputs['audio'] = spec.unsqueeze(0).to(self.device)    # (B, 1, 64, T)
         #self.latest_inputs['audio'] = torch.tensor([[msg.data]*16384], dtype=torch.float32)
         self.try_compress()
     
@@ -153,7 +176,7 @@ class StorageOptimizer(Node):
         if self.vae is None:
             img_shape = self.latest_inputs['image'].shape[1:]  # (C,H,W)
             _, C, H, W = (1,) + img_shape
-            self.vae = VAE(input_channels=C, latent_dim=128, input_height=H, input_width=W).to(self.device)
+            self.vae = VAE(feature_dim=256, latent_dim=128).to(self.device)
 
         # Run VAE on image only get reconstruction and loss
         self.vae.eval()
@@ -171,7 +194,8 @@ class StorageOptimizer(Node):
                 lidar_dim=self.latest_inputs['lidar'].shape[1],
                 imu_dim=self.latest_inputs['imu'].shape[1],
                 audio_dim=self.latest_inputs['audio'].shape[1]
-            )
+            ).to(self.device)
+            
             self.get_logger().info(f"Initialized compressor with inputs: {img_shape}")
 
         cpu_load = psutil.cpu_percent() / 100.0
