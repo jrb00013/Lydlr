@@ -76,7 +76,8 @@ class StorageOptimizer(Node):
         self.feature_extractor.to(self.device)
 
         # VAE input feature_dim should match backbone output (512 for ResNet18)
-        self.vae = VAE(feature_dim=512, latent_dim=128).to(self.device)
+        #self.vae = VAE(feature_dim=512, latent_dim=128).to(self.device)
+        self.vae = None # set to none for now, lazy initialize later
 
         # Mel Spectograph
         self.mel = MelSpectrogram(sample_rate=16000, n_fft=400, hop_length=160, n_mels=64)
@@ -124,11 +125,11 @@ class StorageOptimizer(Node):
 
             img_tensor = img_tensor.unsqueeze(0).to(self.device)  # (1,3,224,224)
 
-            with torch.no_grad():
-                features = self.feature_extractor(img_tensor)  # (1, 512, 1, 1)
-                features = features.view(features.size(0), -1)  # flatten to (1, 512)
+            # with torch.no_grad():
+            #     features = self.feature_extractor(img_tensor)  # (1, 512, 1, 1)
+            #     features = features.view(features.size(0), -1)  # flatten to (1, 512)
 
-            self.latest_inputs['image'] = features  # pass the 512-dim feature vector
+            self.latest_inputs['image'] = img_tensor # pass the 512-dim feature vector
             self.try_compress()
         except Exception as e:
             self.get_logger().error(f"Camera processing failed: {e}")
@@ -170,15 +171,16 @@ class StorageOptimizer(Node):
 
     def try_compress(self):
         if None in self.latest_inputs.values():
-            return
-        
-        # Initialize VAE 
-        if self.vae is None:
-            img_shape = self.latest_inputs['image'].shape[1:]  # (C,H,W)
-            _, C, H, W = (1,) + img_shape
-            self.vae = VAE(feature_dim=256, latent_dim=128).to(self.device)
+          return
 
-        # Run VAE on image only get reconstruction and loss
+        # Lazy init VAE on first call, based on raw image shape
+        if self.vae is None:
+            C, H, W = self.latest_inputs['image'].shape[1:]  # Expect (3,224,224)
+            assert (C, H, W) == (3, 224, 224), "Expect 3x224x224 images for VAE"
+            self.vae = VAE(latent_dim=128).to(self.device)
+            self.get_logger().info("VAE initialized for raw image input (3x224x224)")
+
+        # Forward pass through VAE
         self.vae.eval()
         with torch.no_grad():
             recon, mu, logvar = self.vae(self.latest_inputs['image'])

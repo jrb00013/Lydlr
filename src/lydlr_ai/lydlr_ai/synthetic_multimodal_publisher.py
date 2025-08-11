@@ -2,61 +2,62 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32
 from std_msgs.msg import Float32MultiArray
-import numpy as np
 from std_msgs.msg import Header
-import array
+import numpy as np
 
 class SyntheticMultimodalPublisher(Node):
     def __init__(self):
         super().__init__('synthetic_multimodal_publisher')
 
         self.pub_img = self.create_publisher(Image, '/camera/image_raw', 10)
-        self.pub_imu = self.create_publisher(Float32, '/imu/data', 10)
-        self.pub_lidar = self.create_publisher(Float32, '/lidar/data', 10)
+        self.pub_imu = self.create_publisher(Float32MultiArray, '/imu/data', 10)
+        self.pub_lidar = self.create_publisher(Float32MultiArray, '/lidar/data', 10)
         self.pub_audio = self.create_publisher(Float32MultiArray, '/audio/data', 10)
 
-        # Publish every 0.2 seconds (~5 Hz) to mimic real streaming
-        self.timer = self.create_timer(0.2, self.publish_all_sensors)
+        self.timer = self.create_timer(0.2, self.publish_all_sensors)  # 5 Hz
 
     def publish_all_sensors(self):
         now = self.get_clock().now().to_msg()
 
-        # 🖼 Image (480x640 RGB)
-        img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        # 1) Image: Create random 224x224 RGB image and convert to CHW bytes
+        img_h, img_w = 224, 224
+        img = np.random.randint(0, 256, (img_h, img_w, 3), dtype=np.uint8)  # HWC uint8 RGB
+
+        # Convert HWC -> CHW for PyTorch style input simulation
+        img_chw = np.transpose(img, (2, 0, 1))  # [3, 224, 224]
+
         img_msg = Image()
         img_msg.header = Header(stamp=now)
-        img_msg.height = 480
-        img_msg.width = 640
-        img_msg.encoding = 'rgb8'
+        img_msg.height = img_h
+        img_msg.width = img_w
+        img_msg.encoding = 'rgb8'  # 8-bit RGB
         img_msg.is_bigendian = 0
-        img_msg.step = 640 * 3
-        img_msg.data = img.flatten().tolist()
+        img_msg.step = img_w * 3
+        img_msg.data = img.flatten().tobytes()  # flatten HWC, raw bytes for rgb8
         self.pub_img.publish(img_msg)
 
-        # 📡 IMU: Simulated single float representing [ax,ay,az,gx,gy,gz]
-        imu_value = float(np.random.normal(loc=0.0, scale=1.0))
-        imu_msg = Float32()
-        imu_msg.data = imu_value
+        # 2) IMU: Publish 6 floats [ax, ay, az, gx, gy, gz]
+        imu_data = np.random.normal(0.0, 1.0, 6).astype(np.float32)
+        imu_msg = Float32MultiArray()
+        imu_msg.data = imu_data.tolist()
         self.pub_imu.publish(imu_msg)
 
-        # 🛞 LiDAR: Simulated point cloud magnitude
-        lidar_value = float(np.random.uniform(0, 10))
-        lidar_msg = Float32()
-        lidar_msg.data = lidar_value
+        # 3) LiDAR: Publish 3D points for 100 points (x,y,z) flattened
+        num_points = 100
+        # Simulate points in range [-10,10]
+        lidar_points = np.random.uniform(-10.0, 10.0, (num_points, 3)).astype(np.float32)
+        lidar_msg = Float32MultiArray()
+        lidar_msg.data = lidar_points.flatten().tolist()
         self.pub_lidar.publish(lidar_msg)
 
-        # 🎤 Audio: Simulated waveform chunk (send RMS value)
-        audio_rms = float(np.random.normal(0.0, 0.2))
-        
-        # Generate 16000 samples of random audio (1 second at 16kHz)
+        # 4) Audio: Publish 16000 float32 samples representing 1 second waveform at 16kHz
+        audio_samples = np.random.uniform(-1.0, 1.0, 16000).astype(np.float32)
         audio_msg = Float32MultiArray()
-        samples = np.random.rand(16000).astype(np.float32)
-        audio_msg.data = samples.tolist()
+        audio_msg.data = audio_samples.tolist()
         self.pub_audio.publish(audio_msg)
 
-        self.get_logger().info("📤 Published synthetic data (img, imu, lidar, audio)")
+        self.get_logger().info("📤 Published synthetic data: image, imu (6d), lidar (3D pts), audio (waveform)")
 
 def main(args=None):
     rclpy.init(args=args)

@@ -79,10 +79,10 @@ class MultimodalCompressor(nn.Module):
     def __init__(self, image_shape=(3,480,640), lidar_dim=1024, imu_dim=6, audio_dim=128*128):
         super().__init__()
         channels, height, width = image_shape
-        self.image_encoder = ImageEncoder(channels, height, width)
-        self.lidar_encoder = LiDAREncoder(lidar_dim)
+        self.image_encoder = ImageEncoder(channels)
+        self.lidar_encoder = LiDAREncoder(lidar_dim*3)
         self.imu_encoder = IMUEncoder(imu_dim)
-        self.audio_encoder = AudioEncoder(audio_dim)
+        self.audio_encoder = AudioEncoder()
 
         self.fusion_fc = nn.Linear(128 + 128 + 32 + 128, 256)
 
@@ -115,7 +115,7 @@ class MultimodalCompressor(nn.Module):
             nn.Sigmoid()
         )
 
-        self.vae_compress = VAE(feature_dim=256, latent_dim=64) 
+        self.vae_compress = VAE(input_channels=channels, latent_dim=64, input_height=height, input_width=width)
     
     def fuse_modalities(self, image, lidar, imu, audio, compression_level=1.0):
         img_enc = self.image_encoder(image)
@@ -129,7 +129,7 @@ class MultimodalCompressor(nn.Module):
         fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
 
         # Pass through VAE for compression
-        mu, logvar = self.vae_compress.encode(fused)
+        mu, logvar = self.vae_compress.encode(image)
         z = self.vae_compress.reparameterize(mu, logvar)
         recon_fused = self.vae_compress.decode(z)
 
