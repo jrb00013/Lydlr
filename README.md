@@ -3,7 +3,6 @@
 ## Installation and Setup
 
 ## Overview
-_Target: macOS + Docker + ROS 2 Humble + Python venv_
 
 Lydlr is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation using convolutional and recurrent neural networks. The system leverages temporal context through LSTM layers to improve compression efficiency by learning patterns over time. A reinforcement learning-based controller dynamically adjusts compression levels based on system conditions such as CPU load, battery status, and network bandwidth, ensuring an optimal balance between data quality and resource usage. Additionally, a real-time quality assessment module uses perceptual metrics (LPIPS) to monitor reconstruction fidelity, enabling adaptive tuning on the fly. Synthetic sensor data streams simulate diverse environments for thorough testing and development. The entire pipeline is designed for deployment on edge devices like Raspberry Pi or NVIDIA Jetson, with model quantization and export capabilities for efficient execution on constrained hardware.
 
@@ -259,4 +258,20 @@ Stop both terminals with Ctrl+C when done.
 - Step over: F10  
 - Step in: F11  
 - Enable `"justMyCode": false` to debug libraries
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPLv3).
+
+You are free to use, copy, modify, and distribute this software under the terms of the GPLv3 license.
+
+A copy of the GNU General Public License v3.0 is included in this repository or can be found at:
+
+https://www.gnu.org/licenses/gpl-3.0.en.html
+
+---
+
+**Disclaimer:**
+
+This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
