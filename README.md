@@ -4,7 +4,7 @@
 
 ## Overview
 
-Lydlr is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation using convolutional and recurrent neural networks. 
+Lydlr is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation.
 
 ### ROS 2 + Docker Workspace Setup Guide  
 _Target: macOS + Docker + ROS 2 Humble + Python venv_
