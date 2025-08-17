@@ -48,7 +48,7 @@ class EnhancedVAE(nn.Module):
         # Progressive decoder with multiple scales
         self.decoder_fc = nn.Linear(latent_dim, self.feature_dim)
         self.decoder_conv = nn.ModuleList([
-            # Scale 1: 1/8 resolution - start with actual feature dimensions
+            # Scale 1: 1/8 resolution
             nn.Sequential(
                 nn.ConvTranspose2d(512, 256, 4, stride=2, padding=1),
                 nn.BatchNorm2d(256), nn.ReLU(),
@@ -62,7 +62,7 @@ class EnhancedVAE(nn.Module):
                 nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),
                 nn.BatchNorm2d(32), nn.ReLU()
             ),
-            # Scale 3: Full resolution - ensure output matches input size
+            # Scale 3: Full resolution
             nn.Sequential(
                 nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1),
                 nn.BatchNorm2d(16), nn.ReLU(),
@@ -71,14 +71,11 @@ class EnhancedVAE(nn.Module):
             )
         ])
         
-        # Add final resize to ensure correct output dimensions
-        self.final_resize = nn.AdaptiveAvgPool2d((input_height, input_width))
-        
         # Multi-scale feature fusion - match the actual feature dimensions
         self.scale_fusion = nn.ModuleList([
-            nn.Conv2d(256, 128, 1),  # Scale 1: 256 -> 128 (after first decoder)
-            nn.Conv2d(128, 64, 1),   # Scale 2: 128 -> 64 (after second decoder)
-            nn.Conv2d(32, 16, 1)     # Scale 3: 32 -> 16 (after third decoder)
+            nn.Conv2d(512, 256, 1),  # Scale 1: 512 -> 256
+            nn.Conv2d(256, 128, 1),  # Scale 2: 256 -> 128  
+            nn.Conv2d(128, 64, 1)    # Scale 3: 128 -> 64
         ])
     
     def encode(self, x):
@@ -108,21 +105,13 @@ class EnhancedVAE(nn.Module):
         
         for i, (decoder, fusion) in enumerate(zip(self.decoder_conv, self.scale_fusion)):
             current = decoder(current)
-            # Only apply fusion if dimensions match
-            if i < len(self.scale_fusion) and current.size(1) == self.scale_fusion[i].in_channels:
-                current = fusion(current)
+            current = fusion(current)
             outputs.append(current)
             
             if i == target_scale:  # Stop at target scale
                 break
         
-        final_output = outputs[-1] if outputs else current
-        
-        # Ensure final output matches expected dimensions
-        if hasattr(self, 'final_resize'):
-            final_output = self.final_resize(final_output)
-        
-        return final_output
+        return outputs[-1] if outputs else current
     
     def forward(self, x, target_scale=2):
         """Forward pass with progressive decoding"""
@@ -474,20 +463,13 @@ def compute_enhanced_loss(recon_img, image, mu, logvar, compressed, target_compr
                          predicted_quality, target_quality=0.8, beta=0.1):
     """Enhanced loss function with all components"""
     
-        # VAE loss - compute directly since we can't call class method on instance
+    # VAE loss - compute directly since we can't call class method on instance
     recon_loss = F.mse_loss(recon_img, image, reduction='sum')
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     vae_loss = recon_loss + beta * kl_loss
     
-    # Compression loss - ensure same dimensions
-    if compressed.size(1) != target_compression.size(1):
-        # Project compressed to match target dimensions
-        compressed_proj = nn.Linear(compressed.size(1), target_compression.size(1)).to(compressed.device)
-        compressed_proj = compressed_proj(compressed)
-    else:
-        compressed_proj = compressed
-    
-    compression_loss = F.mse_loss(compressed_proj, target_compression)
+    # Compression loss
+    compression_loss = F.mse_loss(compressed, target_compression)
     
     # Quality loss
     quality_loss = F.mse_loss(predicted_quality, torch.full_like(predicted_quality, target_quality))

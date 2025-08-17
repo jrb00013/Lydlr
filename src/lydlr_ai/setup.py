@@ -55,6 +55,9 @@ setup(
             'demo = lydlr_ai.demo:main',
             'optimizer_node = lydlr_ai.optimizer_node:main',
             'synthetic_multimodal_publisher = lydlr_ai.synthetic_multimodal_publisher:main',
+            'enhanced_train = lydlr_ai.enhanced_train:main',
+            'collect_training_data = lydlr_ai.collect_training_data:main',
+            'test_enhanced_system = lydlr_ai.test_enhanced_system:main',
         ],
     },
 )
