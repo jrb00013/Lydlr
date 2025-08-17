@@ -19,11 +19,11 @@ from tqdm import tqdm
 import json
 from datetime import datetime
 
-from lydlr_ai.model.enhanced_compressor import EnhancedMultimodalCompressor, compute_enhanced_loss
+from lydlr_ai.model.compressor import EnhancedMultimodalCompressor, compute_enhanced_loss
 
 # === Enhanced Hyperparameters ===
-BATCH_SIZE = 4
-SEQ_LEN = 8
+BATCH_SIZE = 2
+SEQ_LEN = 4
 EPOCHS = 20
 LR = 1e-4
 BETA_VAE = 0.1  # β-VAE weight
@@ -33,7 +33,7 @@ SAVE_PATH = "enhanced_multimodal_compressor.pth"
 # === Data Loading ===
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
-from scripts.data_loader import create_data_loader
+from data_loader import create_data_loader
 
 # === Training Configuration ===
 DATA_DIR = "~/lydlr_ws/data/training_data"

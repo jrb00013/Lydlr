@@ -24,7 +24,7 @@ from lydlr_ai.utils.voxel_utils import lidar_to_pointcloud
 # ============================================================================
 
 class EnhancedVAE(nn.Module):
-    """Enhanced VAE with β-VAE, progressive decoding, and multi-scale latents"""
+    """Enhanced VAE with ResNet18 backbone and progressive decoding"""
     
     def __init__(self, input_channels=3, latent_dim=256, input_height=480, input_width=640, beta=1.0):
         super().__init__()
@@ -40,17 +40,20 @@ class EnhancedVAE(nn.Module):
             dummy_input = torch.randn(1, input_channels, input_height, input_width)
             features = self.encoder(dummy_input)
             self.feature_dim = features.shape[1] * features.shape[2] * features.shape[3]
+            self.encoder_channels = features.shape[1]  # This should be 512 for ResNet18
+            self.encoder_height = features.shape[2]    # This should be 15 for 480x640 input
+            self.encoder_width = features.shape[3]     # This should be 20 for 480x640 input
         
         # VAE bottleneck
         self.fc_mu = nn.Linear(self.feature_dim, latent_dim)
         self.fc_logvar = nn.Linear(self.feature_dim, latent_dim)
         
-        # Progressive decoder with multiple scales
+        # Progressive decoder with multiple scales - align with encoder output
         self.decoder_fc = nn.Linear(latent_dim, self.feature_dim)
         self.decoder_conv = nn.ModuleList([
-            # Scale 1: 1/8 resolution - start with actual feature dimensions
+            # Scale 1: 1/8 resolution - start with actual encoder output dimensions
             nn.Sequential(
-                nn.ConvTranspose2d(512, 256, 4, stride=2, padding=1),
+                nn.ConvTranspose2d(self.encoder_channels, 256, 4, stride=2, padding=1),
                 nn.BatchNorm2d(256), nn.ReLU(),
                 nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),
                 nn.BatchNorm2d(128), nn.ReLU()
@@ -71,15 +74,15 @@ class EnhancedVAE(nn.Module):
             )
         ])
         
-        # Add final resize to ensure correct output dimensions
-        self.final_resize = nn.AdaptiveAvgPool2d((input_height, input_width))
-        
         # Multi-scale feature fusion - match the actual feature dimensions
         self.scale_fusion = nn.ModuleList([
             nn.Conv2d(256, 128, 1),  # Scale 1: 256 -> 128 (after first decoder)
             nn.Conv2d(128, 64, 1),   # Scale 2: 128 -> 64 (after second decoder)
             nn.Conv2d(32, 16, 1)     # Scale 3: 32 -> 16 (after third decoder)
         ])
+        
+        # Add final resize to ensure correct output dimensions
+        self.final_resize = nn.AdaptiveAvgPool2d((input_height, input_width))
     
     def encode(self, x):
         """Encode input to latent space"""
@@ -101,7 +104,7 @@ class EnhancedVAE(nn.Module):
     def decode_progressive(self, z, target_scale=2):
         """Progressive decoding with quality control"""
         x = self.decoder_fc(z)
-        x = x.view(x.size(0), 512, 15, 20)  # Reshape to feature map
+        x = x.view(x.size(0), self.encoder_channels, self.encoder_height, self.encoder_width)  # Reshape to feature map
         
         outputs = []
         current = x
@@ -117,11 +120,9 @@ class EnhancedVAE(nn.Module):
                 break
         
         final_output = outputs[-1] if outputs else current
-        
         # Ensure final output matches expected dimensions
         if hasattr(self, 'final_resize'):
             final_output = self.final_resize(final_output)
-        
         return final_output
     
     def forward(self, x, target_scale=2):
@@ -470,24 +471,24 @@ class EnhancedMultimodalCompressor(nn.Module):
 # TRAINING UTILITIES
 # ============================================================================
 
-def compute_enhanced_loss(recon_img, image, mu, logvar, compressed, target_compression, 
+def compute_enhanced_loss(recon_img, image, mu, logvar, compressed, temporal_out, 
                          predicted_quality, target_quality=0.8, beta=0.1):
     """Enhanced loss function with all components"""
     
-        # VAE loss - compute directly since we can't call class method on instance
+    # VAE loss - compute directly since we can't call class method on instance
     recon_loss = F.mse_loss(recon_img, image, reduction='sum')
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     vae_loss = recon_loss + beta * kl_loss
     
-    # Compression loss - ensure same dimensions
-    if compressed.size(1) != target_compression.size(1):
-        # Project compressed to match target dimensions
-        compressed_proj = nn.Linear(compressed.size(1), target_compression.size(1)).to(compressed.device)
-        compressed_proj = compressed_proj(compressed)
+    # Compression loss - compare compressed output with temporal features
+    # Project temporal_out to match compressed dimensions if needed
+    if temporal_out.size(1) != compressed.size(1):
+        projection = nn.Linear(temporal_out.size(1), compressed.size(1)).to(temporal_out.device)
+        temporal_proj = projection(temporal_out)
     else:
-        compressed_proj = compressed
+        temporal_proj = temporal_out
     
-    compression_loss = F.mse_loss(compressed_proj, target_compression)
+    compression_loss = F.mse_loss(compressed, temporal_proj)
     
     # Quality loss
     quality_loss = F.mse_loss(predicted_quality, torch.full_like(predicted_quality, target_quality))
