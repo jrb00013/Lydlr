@@ -6,3 +6,70 @@ __pycache__/
 .vscode/
 .DS_Store
 .venv
+
+# Model files and checkpoints
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pb
+*.onnx
+*.tflite
+*.pkl
+*.joblib
+
+# Model directories
+models/
+**/models/
+**/checkpoints/
+**/checkpoint_*.pth
+**/final_*.pth
+
+# Training artifacts
+training_history.json
+training_logs/
+wandb/
+tensorboard_logs/
+*.log
+
+# Data directories
+data/
+datasets/
+**/training_data/
+**/synthetic_data/
+
+# Cache and temporary files
+.cache/
+*.cache
+*.tmp
+/tmp/lydlr_*.log
+
+# Python cache
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment files
+.env
+.env.local
+.venv/
+venv/
+ENV/
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# ROS2
+.ros/
