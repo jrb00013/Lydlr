@@ -58,6 +58,10 @@ setup(
             'enhanced_train = lydlr_ai.enhanced_train:main',
             'collect_training_data = lydlr_ai.collect_training_data:main',
             'test_enhanced_system = lydlr_ai.test_enhanced_system:main',
+            'edge_compressor_node = lydlr_ai.model.edge_compressor_node:main',
+            'distributed_coordinator = lydlr_ai.model.distributed_coordinator:main',
+            'model_deployment_manager = lydlr_ai.model.model_deployment_manager:main',
+            'train_synthetic_models = lydlr_ai.model.train_synthetic_models:main',
         ],
     },
 )

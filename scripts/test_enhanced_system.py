@@ -17,9 +17,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'lydlr_ai',
 def test_enhanced_vae():
     """Test Enhanced VAE functionality"""
     print("Testing Enhanced VAE...")
-    
+
     try:
-        from enhanced_compressor import EnhancedVAE
+        from lydlr_ai.model.compressor import EnhancedVAE
         
         # Create VAE
         vae = EnhancedVAE(input_channels=3, latent_dim=256, input_height=480, input_width=640, beta=0.1)
@@ -47,9 +47,9 @@ def test_enhanced_vae():
 def test_attention_fusion():
     """Test attention-based multimodal fusion"""
     print("Testing Attention-Based Fusion...")
-    
+
     try:
-        from enhanced_compressor import MultimodalFusion
+        from lydlr_ai.model.compressor import MultimodalFusion
         
         # Create fusion module
         fusion = MultimodalFusion(
@@ -79,23 +79,23 @@ def test_delta_compression():
     print("Testing Delta Compression...")
     
     try:
-        from enhanced_compressor import DeltaCompressor
-        
+        from lydlr_ai.model.compressor import DeltaCompressor
+
         # Create delta compressor
         delta_comp = DeltaCompressor(feature_dim=256, delta_dim=128)
-        
+
         # Test inputs
         current_feat = torch.randn(2, 256)
         previous_feat = torch.randn(2, 256)
-        
+
         # Forward pass
         reconstructed, predicted = delta_comp(current_feat, previous_feat)
-        
+
         print(f"  ✓ Delta compression forward pass: {reconstructed.shape}")
         print(f"  ✓ Temporal prediction: {predicted.shape}")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Delta compression test failed: {e}")
         return False
@@ -103,9 +103,9 @@ def test_delta_compression():
 def test_temporal_transformer():
     """Test enhanced temporal transformer"""
     print("Testing Temporal Transformer...")
-    
+
     try:
-        from enhanced_compressor import TemporalTransformer
+        from lydlr_ai.model.compressor import TemporalTransformer
         
         # Create transformer
         transformer = TemporalTransformer(d_model=256, n_heads=8, n_layers=4)
@@ -130,23 +130,23 @@ def test_quality_controller():
     print("Testing Quality Controller...")
     
     try:
-        from enhanced_compressor import QualityController
-        
+        from lydlr_ai.model.compressor import QualityController
+
         # Create quality controller
         qc = QualityController(feature_dim=256, quality_dim=64)
-        
+
         # Test input
         features = torch.randn(2, 256)
-        
+
         # Forward pass
         compression_level, predicted_quality = qc(features, target_quality=0.8)
-        
+
         print(f"  ✓ Quality controller forward pass")
         print(f"  ✓ Compression level: {compression_level.shape}")
         print(f"  ✓ Predicted quality: {predicted_quality.shape}")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Quality controller test failed: {e}")
         return False
@@ -154,37 +154,37 @@ def test_quality_controller():
 def test_full_model():
     """Test the complete enhanced model"""
     print("Testing Full Enhanced Model...")
-    
+
     try:
-        from enhanced_compressor import EnhancedMultimodalCompressor
-        
+        from lydlr_ai.model.compressor import EnhancedMultimodalCompressor
+
         # Create model
         model = EnhancedMultimodalCompressor()
-        
+
         # Test inputs
         image = torch.randn(2, 3, 480, 640)
         lidar = torch.randn(2, 1024 * 3)  # Flattened
         imu = torch.randn(2, 6)
         audio = torch.randn(2, 128 * 128)
-        
+
         # Forward pass
         start_time = time.time()
-        (compressed, temporal_out, predicted, recon_img, mu, logvar, 
+        (compressed, temporal_out, predicted, recon_img, mu, logvar,
          adjusted_compression, predicted_quality) = model(
             image, lidar, imu, audio, hidden_state=None,
             compression_level=0.8, target_quality=0.8
         )
         end_time = time.time()
-        
+
         print(f"  ✓ Full model forward pass: {end_time - start_time:.4f}s")
         print(f"  ✓ Compressed output: {compressed.shape}")
         print(f"  ✓ Temporal output: {temporal_out.shape}")
         print(f"  ✓ Reconstructed image: {recon_img.shape}")
         print(f"  ✓ Compression level: {adjusted_compression.shape}")
         print(f"  ✓ Predicted quality: {predicted_quality.shape}")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Full model test failed: {e}")
         return False
@@ -192,10 +192,10 @@ def test_full_model():
 def test_loss_function():
     """Test enhanced loss function"""
     print("Testing Enhanced Loss Function...")
-    
+
     try:
-        from enhanced_compressor import compute_enhanced_loss
-        
+        from lydlr_ai.model.compressor import compute_enhanced_loss
+
         # Create dummy data
         recon_img = torch.randn(2, 3, 480, 640)
         image = torch.randn(2, 3, 480, 640)
@@ -204,18 +204,18 @@ def test_loss_function():
         compressed = torch.randn(2, 64)
         target_compression = torch.randn(2, 256)
         predicted_quality = torch.randn(2, 1)
-        
+
         # Compute loss
         total_loss, metrics = compute_enhanced_loss(
             recon_img, image, mu, logvar, compressed, target_compression,
             predicted_quality, target_quality=0.8, beta=0.1
         )
-        
+
         print(f"  ✓ Loss computation: {total_loss.item():.4f}")
         print(f"  ✓ Loss components: {list(metrics.keys())}")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Loss function test failed: {e}")
         return False
@@ -223,9 +223,9 @@ def test_loss_function():
 def test_memory_efficiency():
     """Test memory efficiency"""
     print("Testing Memory Efficiency...")
-    
+
     try:
-        from enhanced_compressor import EnhancedMultimodalCompressor
+        from lydlr_ai.model.compressor import EnhancedMultimodalCompressor
         
         # Create model
         model = EnhancedMultimodalCompressor()

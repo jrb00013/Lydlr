@@ -370,6 +370,239 @@ class QualityController(nn.Module):
         return adjusted_level, predicted_quality
 
 # ============================================================================
+# ORIGINAL MULTIMODAL COMPRESSOR (for backward compatibility)
+# ============================================================================
+
+class ImageEncoder(nn.Module):
+    def __init__(self, channels=3):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(channels, 16, 3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            nn.ReLU()
+        )
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))  # fixed for now
+        self.fc = nn.Linear(32 * 4 * 4, 128)
+
+    def forward(self, x):
+        conv_out = self.conv(x)
+        self._output_shape = conv_out.shape  # store shape for decoder
+        pooled = self.pool(conv_out)
+        return self.fc(pooled.view(x.size(0), -1))
+
+    def get_conv_output_shape(self):
+        return self._output_shape
+
+class LiDAREncoder(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class IMUEncoder(nn.Module):
+    def __init__(self, input_dim=6):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class AudioEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4))
+        )
+        self.fc = nn.Linear(32 * 4 * 4, 128)
+
+    def forward(self, x):  # x: (B, 1, H, W)
+        x = self.cnn(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+class MultimodalCompressor(nn.Module):
+    def __init__(self, image_shape=(3,480,640), lidar_dim=1024, imu_dim=6, audio_dim=128*128):
+        super().__init__()
+        channels, height, width = image_shape
+        self.image_encoder = ImageEncoder(channels)
+        self.lidar_encoder = LiDAREncoder(lidar_dim*3)
+        self.imu_encoder = IMUEncoder(imu_dim)
+        self.audio_encoder = AudioEncoder()
+
+        self.fusion_fc = nn.Linear(128 + 128 + 32 + 128, 256)
+
+        # Temporal context via LSTM on fused features over time
+        self.lstm = nn.LSTM(256, 128, batch_first=True)
+
+        # Predictor for prediction head
+        self.predictor = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256)
+        )
+
+        # Decoder for reconstruction (simple linear for demo)
+        self.decoder = nn.Sequential(
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128 + 128 + 32 + 128)  # reconstruct fusion features
+        )
+
+        self.image_decoder_fc = nn.Linear(128, 32 * (image_shape[1] // 4) * (image_shape[2] // 4))
+
+        self.image_decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1),  # Upsample H/4 -> H/2
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, image_shape[0], 4, stride=2, padding=1),  # Upsample H/2 -> H
+            nn.Sigmoid()
+        )
+
+        self.vae_compress = VAE(input_channels=channels, latent_dim=64, input_height=height, input_width=width)
+
+    def fuse_modalities(self, image, lidar, imu, audio, compression_level=1.0):
+        img_enc = self.image_encoder(image)
+        lidar_enc = self.lidar_encoder(lidar.view(lidar.size(0), -1))
+        imu_enc = self.imu_encoder(imu)
+        audio_enc = self.audio_encoder(audio)
+
+        fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
+        fused = self.fusion_fc(fused)
+        fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
+
+        # Pass through VAE for compression
+        mu, logvar = self.vae_compress.encode(image)
+        z = self.vae_compress.reparameterize(mu, logvar)
+        recon_fused = self.vae_compress.decode(z)
+
+        return fused, z, recon_fused, mu, logvar
+
+    def forward(self, image, lidar, imu, audio, hidden_state=None, compression_level=1.0):
+        img_enc = self.image_encoder(image)
+        lidar_enc = self.lidar_encoder(lidar.view(lidar.size(0), -1))
+        imu_enc = self.imu_encoder(imu)
+        audio_enc = self.audio_encoder(audio)
+
+        fused = torch.cat([img_enc, lidar_enc, imu_enc, audio_enc], dim=1)
+        fused = self.fusion_fc(fused)  # Add seq dim for LSTM (B,1,256)
+        fused = F.dropout(fused, p=1.0 - compression_level, training=self.training)
+
+        # Run LSTM -> temporal context
+        lstm_out, hidden_state = self.lstm(fused, hidden_state)  # lstm_out (B,1,128)
+
+        decoded = self.decoder(lstm_out.squeeze(1))
+
+         # --- Image reconstruction from latent for quality assessment ---
+        batch_size = image.size(0)
+        feat_shape = self.image_encoder.get_conv_output_shape()  # (B, C, H', W')
+        feat_H, feat_W = feat_shape[2], feat_shape[3]
+        img_feat_flat = self.image_decoder_fc(lstm_out.squeeze(1))
+        img_feat = img_feat_flat.view(batch_size, 32, feat_H, feat_W)
+        reconstructed_img = self.image_decoder_conv(img_feat)
+
+        return lstm_out.squeeze(1), decoded, hidden_state, reconstructed_img
+
+# ============================================================================
+# ORIGINAL VAE (for backward compatibility)
+# ============================================================================
+
+class VAE(nn.Module):
+    def __init__(self, input_channels=3, latent_dim=128, input_height=480, input_width=640):
+        super().__init__()
+        # Encoder: convert layers to latent mean and logvar
+
+        self.encoder_conv = nn.Sequential(
+            nn.Conv2d(input_channels, 32, 4, stride=2, padding=1),  # H/2, W/2
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, stride=2, padding=1),  # H/4, W/4
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 4, stride=2, padding=1), # H/8, W/8
+            nn.ReLU()
+        )
+
+        conv_output_size = 128 * (input_height // 8) * (input_width // 8)
+        self.fc_mu = nn.Linear(conv_output_size, latent_dim)
+        self.fc_logvar = nn.Linear(conv_output_size, latent_dim)
+
+        # Decoder: latent to feature map to conv transpose layers
+        self.decoder_fc = nn.Linear(latent_dim, conv_output_size)
+
+        self.decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1), # H/4, W/4
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),  # H/2, W/2
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, input_channels, 4, stride=2, padding=1), # H, W
+            nn.Sigmoid()
+        )
+
+    def encode(self, x):
+        x = self.encoder_conv(x)
+        x = x.view(x.size(0), -1)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z):
+        batch_size = z.size(0)
+        x = self.decoder_fc(z)
+        # Reshape to (batch_size, 128, H/8, W/8)
+        feature_size = x.size(1) // 128
+        height = int((feature_size ** 0.5))
+        width = feature_size // height
+        x = x.view(batch_size, 128, height, width)
+        x = self.decoder_conv(x)
+        return x
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        recon = self.decode(z)
+        return recon, mu, logvar
+
+# ============================================================================
+# QUALITY ASSESSOR (for backward compatibility)
+# ============================================================================
+
+class QualityAssessor:
+    def __init__(self, device='cpu'):
+        self.loss_fn = lpips.LPIPS(net='alex').to(device)
+        self.device = device
+
+    def assess(self, img1, img2):
+        img1_np = img1.squeeze().permute(1,2,0).cpu().numpy()
+        img2_np = img2.squeeze().permute(1,2,0).cpu().numpy()
+
+        psnr = peak_signal_noise_ratio(img1_np, img2_np, data_range=1.0)
+        ssim = structural_similarity(img1_np, img2_np, multichannel=True)
+
+        lpips_score = self.loss_fn((img1 * 2 - 1), (img2 * 2 - 1)).mean().item()
+        return {
+        "lpips": lpips_score,
+        "psnr": psnr,
+        "ssim": ssim
+        }
+
+# ============================================================================
 # MAIN ENHANCED COMPRESSOR
 # ============================================================================
 
