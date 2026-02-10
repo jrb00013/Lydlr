@@ -5,11 +5,11 @@
         "name": "Debug ROS2 optimizer_node (launch)",
         "type": "python",
         "request": "launch",
-        "program": "${workspaceFolder}/lydlr_ai/optimizer_node.py",
+        "program": "${workspaceFolder}/ros2/src/lydlr_ai/lydlr_ai/optimizer_node.py",
         "console": "integratedTerminal",
         "args": [],
         "env": {
-          "PYTHONPATH": "${env:PYTHONPATH}:/root/lydlr/lydlr_ws/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages",
+          "PYTHONPATH": "${env:PYTHONPATH}:${workspaceFolder}/ros2/src:/root/lydlr/lydlr_ws/.venv/lib/python3.10/site-packages",
           "DISPLAY": ":99",
           "XDG_RUNTIME_DIR": "/tmp/runtime-root",
           "PYTORCH_JIT_LOG_LEVEL": "0",
@@ -24,7 +24,7 @@
         "pathMappings": [
           {
             "localRoot": "${workspaceFolder}",
-            "remoteRoot": "/root/lydlr/lydlr_ws/src/lydlr_ai"
+            "remoteRoot": "/root/lydlr/lydlr_ws/ros2/src/lydlr_ai"
           }
         ]
       },
@@ -39,7 +39,7 @@
         "pathMappings": [
           {
             "localRoot": "${workspaceFolder}",
-            "remoteRoot": "/root/lydlr/lydlr_ws/src/lydlr_ai"
+            "remoteRoot": "/root/lydlr/lydlr_ws/ros2/src/lydlr_ai"
           }
         ]
       }

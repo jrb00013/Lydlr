@@ -27,8 +27,12 @@ echo "Building ROS2 package..."
 colcon build --symlink-install --packages-select lydlr_ai
 source install/setup.bash
 
-# Export PYTHONPATH
-export PYTHONPATH="$(pwd)/src/lydlr_ai:${PYTHONPATH}"
+# Export PYTHONPATH (support both old and new structure)
+if [ -d "ros2/src/lydlr_ai" ]; then
+    export PYTHONPATH="$(pwd)/ros2/src/lydlr_ai:${PYTHONPATH}"
+elif [ -d "src/lydlr_ai" ]; then
+    export PYTHONPATH="$(pwd)/src/lydlr_ai:${PYTHONPATH}"
+fi
 
 # Setup display for WSL
 if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null ; then
