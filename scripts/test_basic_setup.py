@@ -61,13 +61,22 @@ def test_file_structure():
     """Test file structure"""
     print("\nTesting file structure...")
     
-    # Check if key files exist
-    key_files = [
-        "src/lydlr_ai/train.py",
-        "src/lydlr_ai/lydlr_ai/model/compressor.py",
-        "scripts/data_loader.py",
-        "scripts/collect_training_data.py"
-    ]
+    # Check if key files exist (support both old and new structure)
+    key_files = []
+    if os.path.exists("ros2/src/lydlr_ai"):
+        key_files = [
+            "ros2/src/lydlr_ai/train.py",
+            "ros2/src/lydlr_ai/lydlr_ai/model/compressor.py",
+            "scripts/data_loader.py",
+            "scripts/collect_training_data.py"
+        ]
+    elif os.path.exists("src/lydlr_ai"):
+        key_files = [
+            "src/lydlr_ai/train.py",
+            "src/lydlr_ai/lydlr_ai/model/compressor.py",
+            "scripts/data_loader.py",
+            "scripts/collect_training_data.py"
+        ]
     
     for file_path in key_files:
         if os.path.exists(file_path):
@@ -85,9 +94,12 @@ def main():
     
     print("\n=== Test Complete ===")
     print("\nNext steps:")
-    print("1. Install Python dependencies: pip install -r src/lydlr_ai/requirements.txt")
+    # Support both old and new structure
+    req_path = "ros2/src/lydlr_ai/requirements.txt" if os.path.exists("ros2/src/lydlr_ai/requirements.txt") else "src/lydlr_ai/requirements.txt"
+    train_path = "ros2/src/lydlr_ai/train.py" if os.path.exists("ros2/src/lydlr_ai/train.py") else "src/lydlr_ai/train.py"
+    print(f"1. Install Python dependencies: pip install -r {req_path}")
     print("2. Test data loader: python3 scripts/data_loader.py")
-    print("3. Test training: python3 src/lydlr_ai/train.py")
+    print(f"3. Test training: python3 {train_path}")
 
 if __name__ == "__main__":
     main()

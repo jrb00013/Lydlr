@@ -303,7 +303,9 @@ def main():
     if passed == total:
         print("🎉 ALL TESTS PASSED! Enhanced system is ready for training.")
         print("\nNext steps:")
-        print("1. Run enhanced training: python3 src/lydlr_ai/enhanced_train.py")
+        # Support both old and new structure
+        train_path = "ros2/src/lydlr_ai/enhanced_train.py" if os.path.exists("ros2/src/lydlr_ai/enhanced_train.py") else "src/lydlr_ai/enhanced_train.py"
+        print(f"1. Run enhanced training: python3 {train_path}")
         print("2. Monitor training progress and metrics")
         print("3. Test with real sensor data when available")
     else:
