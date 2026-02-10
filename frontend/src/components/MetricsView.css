@@ -1,0 +1,37 @@
+.metrics-view {
+  animation: fadeIn 0.5s ease-in;
+}
+
+.metrics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.node-selector {
+  padding: 0.6rem 1.2rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.node-selector:focus {
+  outline: none;
+  border-color: #1e293b;
+}
+
+.charts-container {
+  display: grid;
+  gap: 2rem;
+}
+
+.chart-card h2 {
+  margin-bottom: 1rem;
+  color: #374151;
+  font-size: 1.2rem;
+}
+

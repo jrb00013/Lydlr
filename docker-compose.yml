@@ -1,0 +1,222 @@
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: lydlr-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: lydlr
+      MONGO_INITDB_ROOT_PASSWORD: lydlr_password
+      MONGO_INITDB_DATABASE: lydlr_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - lydlr-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis for caching and real-time data
+  redis:
+    image: redis:7-alpine
+    container_name: lydlr-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # Host port 6380 maps to container port 6379
+    volumes:
+      - redis_data:/data
+    networks:
+      - lydlr-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Backend API (Django REST Framework)
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: lydlr-backend
+    restart: unless-stopped
+    environment:
+      - MONGODB_URL=mongodb://lydlr:lydlr_password@mongodb:27017/lydlr_db?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MODEL_DIR=/app/models
+      - PYTHONPATH=/app
+      - DJANGO_SETTINGS_MODULE=backend.backend.settings
+      - DEBUG=True
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - DEEPSTREAM_ENABLED=False
+      - GSTREAMER_PLUGINS_PATH=/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+      - GSTREAMER_DEBUG=2
+      - GST_DEBUG_NO_COLOR=1
+      - NVIDIA_DEEPSTREAM_PATH=/opt/nvidia/deepstream/deepstream
+      - ROS2_CONTAINER=lydlr-ros2
+      - ROS2_WORKSPACE=/app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ros2/src/lydlr_ai/models:/app/models
+      - ./backend:/app/backend
+      - /dev/video0:/dev/video0  # Video device access (if available)
+      - gstreamer_cache:/tmp/gstreamer
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket for executing commands in ros2-runtime
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lydlr-network
+    command: python -m daphne -b 0.0.0.0 -p 8000 backend.backend.asgi:application
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health/ > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lydlr-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - lydlr-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:3000 2>/dev/null || (command -v curl >/dev/null && curl -f http://127.0.0.1:3000 >/dev/null 2>&1) || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: lydlr-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - lydlr-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ROS2 Runtime Environment
+  ros2-runtime:
+    build:
+      context: .
+      dockerfile: ros2/Dockerfile
+    container_name: lydlr-ros2
+    restart: unless-stopped
+    environment:
+      - ROS_DOMAIN_ID=0
+      - PYTHONPATH=/app/src:/app/src/lydlr_ai:/app/.venv/lib/python3.10/site-packages
+      - MODEL_DIR=/app/models
+      - NUM_NODES=2
+      - NODE_IDS=node_0,node_1
+      - MONGODB_URL=mongodb://lydlr:lydlr_password@mongodb:27017/lydlr_db?authSource=admin
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./ros2/src:/app/src:rw
+      - ./ros2/src/lydlr_ai/models:/app/models:rw
+      - ./scripts:/app/scripts:ro
+      - ./launch:/app/launch:ro
+      - ros2_workspace:/app/install
+      - ros2_logs:/app/log
+    network_mode: host
+    privileged: true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: bash -c "source /opt/ros/humble/setup.bash && if [ -f /app/install/setup.bash ]; then source /app/install/setup.bash; fi && /app/launch_lydlr_system.sh"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "source /opt/ros/humble/setup.bash && ros2 daemon status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # Model Hosting Service
+  model-service:
+    build:
+      context: .
+      dockerfile: model-service/Dockerfile
+    container_name: lydlr-model-service
+    restart: unless-stopped
+    environment:
+      - MODEL_DIR=/models
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URL=mongodb://lydlr:lydlr_password@mongodb:27017/lydlr_db?authSource=admin
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ros2/src/lydlr_ai/models:/models
+      - ./model-service:/app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lydlr-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  mongodb_data:
+  redis_data:
+  gstreamer_cache:
+  ros2_workspace:
+  ros2_logs:
+
+networks:
+  lydlr-network:
+    driver: bridge
+

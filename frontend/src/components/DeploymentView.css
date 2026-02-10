@@ -1,0 +1,169 @@
+.deployment-view {
+  animation: fadeIn 0.5s ease-in;
+}
+
+.deployment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+@media (max-width: 968px) {
+  .deployment-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.deploy-card,
+.history-card {
+  padding: 2rem;
+}
+
+.deploy-card h2,
+.history-card h2 {
+  margin-bottom: 1.5rem;
+  color: #374151;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.form-select {
+  width: 100%;
+  padding: 0.8rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: #1e293b;
+}
+
+.nodes-checklist {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: #f9fafb;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.checkbox-label:hover {
+  background: #f3f4f6;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.node-badge {
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.no-nodes,
+.no-deployments {
+  text-align: center;
+  color: #6b7280;
+  padding: 1rem;
+}
+
+.deploy-btn {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+}
+
+.deploy-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deployments-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.deployment-item {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border-left: 4px solid #1e293b;
+}
+
+.deployment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.deployment-model {
+  font-weight: 600;
+  color: #374151;
+}
+
+.deployment-status {
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-deploying {
+  background: #dbeafe;
+  color: #3b82f6;
+}
+
+.status-deployed {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.status-failed {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.deployment-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.deployment-time {
+  font-style: italic;
+}
+

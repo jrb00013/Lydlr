@@ -1,0 +1,270 @@
+.nodes-view {
+  animation: fadeIn 0.5s ease-in;
+}
+
+.loading {
+  text-align: center;
+  color: white;
+  font-size: 1.2rem;
+  padding: 2rem;
+}
+
+.nodes-grid {
+  gap: 1.5rem;
+}
+
+.node-card {
+  padding: 1.5rem;
+}
+
+.node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.node-header h3 {
+  margin: 0;
+  color: #374151;
+  font-size: 1.3rem;
+}
+
+.node-status {
+  padding: 0.4rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-active {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.status-inactive {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.status-error {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+
+.node-metrics {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.metric {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.6rem;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.metric-label {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.metric-value {
+  font-weight: 600;
+  color: #374151;
+}
+
+.process-info {
+  margin-bottom: 1rem;
+  padding: 0.8rem;
+  background: #f0f9ff;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
+}
+
+.process-detail {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.process-detail:last-child {
+  margin-bottom: 0;
+}
+
+.process-label {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.process-value {
+  font-weight: 600;
+  color: #374151;
+  font-family: monospace;
+}
+
+.log-path {
+  color: #3b82f6;
+  font-size: 0.8rem;
+}
+
+.node-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.action-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.action-row button {
+  flex: 1;
+}
+
+.btn-info {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.btn-info:hover {
+  background-color: #2563eb;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.form-group input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.logs-modal {
+  max-width: 900px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.logs-header h2 {
+  margin: 0;
+}
+
+.logs-content {
+  flex: 1;
+  overflow-y: auto;
+  background: #1e293b;
+  border-radius: 6px;
+  padding: 1rem;
+  max-height: 60vh;
+}
+
+.logs-text {
+  margin: 0;
+  color: #e2e8f0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.no-logs {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.status-running {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.status-stopped {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.status-pending {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+

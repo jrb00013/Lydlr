@@ -1,0 +1,281 @@
+.workspace-view {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  color: white;
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #374151;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  color: #f3f4f6;
+}
+
+.workspace-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.info-card {
+  background: #1f2937;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #374151;
+}
+
+.info-card h3 {
+  margin: 0 0 1rem 0;
+  color: #60a5fa;
+  font-size: 1.2rem;
+}
+
+.status-badge {
+  margin-bottom: 1rem;
+}
+
+.status-indicator {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.status-indicator.built {
+  background: #10b981;
+  color: white;
+}
+
+.status-indicator.not-built {
+  background: #ef4444;
+  color: white;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #374151;
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-item label {
+  font-weight: 600;
+  color: #9ca3af;
+}
+
+.info-item span {
+  color: #f3f4f6;
+}
+
+.monospace {
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  color: #60a5fa;
+}
+
+.structure-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #374151;
+}
+
+.structure-item:last-child {
+  border-bottom: none;
+}
+
+.check {
+  font-size: 1.2rem;
+  font-weight: bold;
+  width: 1.5rem;
+  text-align: center;
+}
+
+.check.yes {
+  color: #10b981;
+}
+
+.check.no {
+  color: #ef4444;
+}
+
+.packages-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.package-tag {
+  background: #374151;
+  color: #60a5fa;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.no-packages {
+  color: #9ca3af;
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.build-output-card {
+  background: #1f2937;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #374151;
+  margin-bottom: 2rem;
+}
+
+.build-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.build-output-header h3 {
+  margin: 0;
+  color: #60a5fa;
+  font-size: 1.2rem;
+}
+
+.build-output {
+  background: #111827;
+  border-radius: 6px;
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.output-line {
+  color: #d1d5db;
+  margin-bottom: 0.25rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workspace-actions {
+  margin-top: 2rem;
+}
+
+.action-card {
+  background: #1f2937;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #374151;
+}
+
+.action-card h3 {
+  margin: 0 0 1rem 0;
+  color: #60a5fa;
+  font-size: 1.2rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-primary:disabled {
+  background: #4b5563;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  background: #374151;
+  color: #f3f4f6;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #4b5563;
+}
+
+.btn-small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.btn-loading {
+  position: relative;
+  color: transparent;
+}
+
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #ffffff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.loading {
+  text-align: center;
+  color: white;
+  font-size: 1.2rem;
+  padding: 2rem;
+}
+
+.error-message {
+  text-align: center;
+  color: #ef4444;
+  font-size: 1.1rem;
+  padding: 2rem;
+  background: #1f2937;
+  border-radius: 8px;
+  border: 1px solid #ef4444;
+}
+

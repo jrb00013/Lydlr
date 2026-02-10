@@ -1,0 +1,35 @@
+# This file is kept for backward compatibility
+# Use pyproject.toml and Poetry for dependency management
+# To install: poetry install
+
+# Core Django
+django>=5.0.0
+djangorestframework>=3.14.0
+django-cors-headers>=4.3.0
+
+# Channels for WebSockets
+channels>=4.0.0
+channels-redis>=4.1.0
+daphne>=4.0.0
+
+# Database
+motor>=3.3.2
+pymongo>=4.6.1
+
+# Redis
+redis>=5.0.1
+
+# Utilities
+python-dotenv>=1.0.0
+gunicorn>=21.2.0
+
+# ML/AI
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26.3
+pillow>=10.2.0
+opencv-python>=4.8.1
+
+# GStreamer Python bindings (installed via system packages: python3-gi, python3-gst-1.0)
+# Note: gst-python and PyGObject are installed via apt, not pip
+# PyGObject>=3.44.0  # Optional: can be installed via pip if system package doesn't work

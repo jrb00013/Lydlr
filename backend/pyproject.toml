@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "lydlr-backend"
+version = "1.0.0"
+description = "Lydlr Revolutionary Compression System Backend"
+authors = ["Joseph Ronald Black"]
+readme = "README.md"
+packages = [{include = "backend"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+django = "^5.0.0"
+djangorestframework = "^3.14.0"
+django-cors-headers = "^4.3.0"
+channels = "^4.0.0"
+channels-redis = "^4.1.0"
+motor = "^3.3.2"
+pymongo = "^4.6.1"
+redis = "^5.0.1"
+python-dotenv = "^1.0.0"
+gunicorn = "^21.2.0"
+celery = "^5.3.4"
+daphne = "^4.0.0"
+opencv-python = "^4.8.1"
+numpy = "^1.26.3"
+pillow = "^10.2.0"
+torch = "^2.2.0"
+torchvision = "^0.17.0"
+gst-python = "^1.22.0"
+pygobject = "^3.44.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-django = "^4.7.0"
+black = "^23.12.0"
+flake8 = "^7.0.0"
+mypy = "^1.7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
