@@ -49,7 +49,7 @@ setup(
     maintainer_email='root@todo.todo',
     description='AI Storage Optimization Package',
     license='MIT',
-    tests_require=['pytest'],
+    python_requires='>=3.8',
     entry_points={
         'console_scripts': [
             'demo = lydlr_ai.demo:main',
