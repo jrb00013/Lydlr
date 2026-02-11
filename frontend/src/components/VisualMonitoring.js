@@ -191,7 +191,6 @@ function VisualMonitoring() {
     return '#ff0000';
   };
 
-  const nodeMetrics = selectedNode ? metrics[selectedNode] : null;
   const nodeHistory = compressionHistory.filter(m => m.node === selectedNode);
 
   return (

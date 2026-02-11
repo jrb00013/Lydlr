@@ -70,16 +70,6 @@ function NodesView() {
     }
   };
 
-  const fetchNodeStatus = async (nodeId) => {
-    try {
-      const response = await fetch(`${API_URL}/api/nodes/${nodeId}/status/`);
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch node status:', error);
-      return { status: 'unknown' };
-    }
-  };
 
   // Initial fetch
   useEffect(() => {

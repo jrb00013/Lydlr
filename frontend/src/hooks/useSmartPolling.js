@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 /**
  * Smart polling hook with I/O scheduling
@@ -44,9 +44,9 @@ export function useSmartPolling(callback, options = {}) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isPolling]);
+  }, [isPolling, scheduleNextPoll]);
 
-  const scheduleNextPoll = () => {
+  const scheduleNextPoll = useCallback(() => {
     // Clear any existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -86,7 +86,7 @@ export function useSmartPolling(callback, options = {}) {
       // Schedule next poll
       scheduleNextPoll();
     }, nextInterval);
-  };
+  }, [interval, minInterval, maxInterval, isPolling, onError]);
 
   useEffect(() => {
     if (!enabled || !isPolling) {
@@ -109,15 +109,19 @@ export function useSmartPolling(callback, options = {}) {
     // Schedule first poll
     scheduleNextPoll();
 
+    // Store refs for cleanup
+    const timeoutId = timeoutRef.current;
+    const intervalId = intervalRef.current;
+
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+      if (intervalId) {
+        clearInterval(intervalId);
       }
     };
-  }, [enabled, isPolling, interval, immediate]);
+  }, [enabled, isPolling, interval, immediate, scheduleNextPoll, onError]);
 
   const pause = () => setIsPolling(false);
   const resume = () => {

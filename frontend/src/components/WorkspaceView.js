@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { NotificationContext } from '../App';
 import './WorkspaceView.css';
 
@@ -10,7 +10,7 @@ const WorkspaceView = () => {
   const [buildOutput, setBuildOutput] = useState([]);
   const [showOutput, setShowOutput] = useState(false);
 
-  const fetchWorkspaceInfo = async () => {
+  const fetchWorkspaceInfo = useCallback(async () => {
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/workspace/`);
       if (response.ok) {
@@ -25,14 +25,14 @@ const WorkspaceView = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notification]);
 
   useEffect(() => {
     fetchWorkspaceInfo();
     // Refresh every 10 seconds
     const interval = setInterval(fetchWorkspaceInfo, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchWorkspaceInfo]);
 
   const handleBuild = async () => {
     setBuilding(true);
