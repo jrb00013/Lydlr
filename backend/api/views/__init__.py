@@ -22,7 +22,7 @@ from backend.api.views.device_views import (
     SensorListView,
     NodeDeviceConnectionView
 )
-from backend.api.views.workspace_views import WorkspaceView
+from backend.api.views.workspace_views import WorkspaceView, DiagnosticView, OrchestrationStatusView
 from backend.api.views.model_views import ModelListView
 from backend.api.views.metrics_views import MetricsView, SystemStatsView
 from backend.api.views.deployment_views import DeploymentView
@@ -48,6 +48,8 @@ __all__ = [
     'NodeDeviceConnectionView',
     # Workspace
     'WorkspaceView',
+    'OrchestrationStatusView',
+    'DiagnosticView',
     # Models
     'ModelListView',
     # Metrics

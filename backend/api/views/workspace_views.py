@@ -4,10 +4,11 @@ Workspace management views
 import logging
 import subprocess
 from pathlib import Path
+from datetime import datetime
 from rest_framework.response import Response
 from rest_framework import status
 
-from backend.api.views.base import AsyncAPIView
+from backend.api.views.base import AsyncAPIView, ensure_db_connection
 from backend.api.node_manager import (
     find_ros2_workspace, get_ros2_distro,
     is_docker_available, get_ros2_container
@@ -16,11 +17,159 @@ from backend.api.node_manager import (
 logger = logging.getLogger(__name__)
 
 
+class DiagnosticView(AsyncAPIView):
+    """Diagnostic endpoint to test ROS2 and workspace detection"""
+    
+    async def get(self, request):
+        """Run diagnostics and return detailed information"""
+        diagnostics = {
+            "docker": {},
+            "ros2": {},
+            "workspace": {},
+            "container": {},
+            "errors": []
+        }
+        
+        # Test Docker availability
+        docker_available = is_docker_available()
+        diagnostics["docker"]["available"] = docker_available
+        
+        if docker_available:
+            try:
+                # Get Docker version
+                result = subprocess.run(
+                    ['docker', '--version'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                diagnostics["docker"]["version"] = result.stdout.strip() if result.returncode == 0 else "unknown"
+            except Exception as e:
+                diagnostics["docker"]["error"] = str(e)
+                diagnostics["errors"].append(f"Docker version check failed: {e}")
+        
+        # Test ROS2 container
+        ros2_container = get_ros2_container()
+        diagnostics["container"]["name"] = ros2_container
+        diagnostics["container"]["running"] = False
+        
+        if docker_available and ros2_container:
+            try:
+                # Check if container exists
+                result = subprocess.run(
+                    ['docker', 'ps', '-a', '--filter', f'name={ros2_container}', '--format', '{{.Names}} {{.Status}}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if ros2_container in result.stdout:
+                    diagnostics["container"]["exists"] = True
+                    diagnostics["container"]["status"] = result.stdout.strip()
+                    diagnostics["container"]["running"] = "Up" in result.stdout
+                    
+                    if diagnostics["container"]["running"]:
+                        # Test ROS2 in container
+                        ros2_check = subprocess.run(
+                            ['docker', 'exec', ros2_container, 'test', '-f', '/opt/ros/humble/setup.bash'],
+                            capture_output=True,
+                            timeout=5
+                        )
+                        diagnostics["ros2"]["in_container"] = ros2_check.returncode == 0
+                        
+                        # Test workspace in container
+                        src_check = subprocess.run(
+                            ['docker', 'exec', ros2_container, 'test', '-d', '/app/src'],
+                            capture_output=True,
+                            timeout=5
+                        )
+                        diagnostics["workspace"]["src_exists"] = src_check.returncode == 0
+                        
+                        install_check = subprocess.run(
+                            ['docker', 'exec', ros2_container, 'test', '-f', '/app/install/setup.bash'],
+                            capture_output=True,
+                            timeout=5
+                        )
+                        diagnostics["workspace"]["install_exists"] = install_check.returncode == 0
+                        
+                        # List directory contents
+                        ls_result = subprocess.run(
+                            ['docker', 'exec', ros2_container, 'ls', '-la', '/app'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        diagnostics["workspace"]["app_contents"] = ls_result.stdout if ls_result.returncode == 0 else None
+                        
+                        # Check src directory
+                        src_ls = subprocess.run(
+                            ['docker', 'exec', ros2_container, 'ls', '-la', '/app/src'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        diagnostics["workspace"]["src_contents"] = src_ls.stdout if src_ls.returncode == 0 else None
+                else:
+                    diagnostics["container"]["exists"] = False
+                    # List all containers
+                    all_containers = subprocess.run(
+                        ['docker', 'ps', '-a', '--format', '{{.Names}}'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    diagnostics["container"]["all_containers"] = all_containers.stdout.strip().split('\n') if all_containers.returncode == 0 else []
+            except Exception as e:
+                diagnostics["container"]["error"] = str(e)
+                diagnostics["errors"].append(f"Container check failed: {e}")
+        
+        # Test ROS2 detection
+        ros2_distro = get_ros2_distro()
+        diagnostics["ros2"]["detected"] = ros2_distro is not None
+        diagnostics["ros2"]["distro"] = ros2_distro
+        
+        # Test workspace detection
+        workspace_dir = find_ros2_workspace()
+        diagnostics["workspace"]["detected"] = workspace_dir is not None
+        diagnostics["workspace"]["path"] = str(workspace_dir) if workspace_dir else None
+        
+        # Test local ROS2 (if not using Docker)
+        if not docker_available:
+            for distro in ['humble', 'foxy', 'galactic', 'rolling']:
+                setup_file = Path(f'/opt/ros/{distro}/setup.bash')
+                if setup_file.exists():
+                    diagnostics["ros2"]["local_path"] = str(setup_file)
+                    break
+        
+        return Response(diagnostics)
+
+
+class OrchestrationStatusView(AsyncAPIView):
+    """Orchestration status endpoint"""
+    
+    async def get(self, request):
+        """Get orchestration status"""
+        try:
+            db = await ensure_db_connection()
+            db_connected = db is not None
+        except Exception:
+            db_connected = False
+        
+        status_info = {
+            "status": "operational",
+            "docker_available": is_docker_available(),
+            "ros2_container": get_ros2_container() if is_docker_available() else None,
+            "database_connected": db_connected,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return Response(status_info)
+
+
 class WorkspaceView(AsyncAPIView):
     """Workspace management - build, status, info"""
     
     async def get(self, request):
-        """Get workspace status and info"""
+        """Get workspace status and info with diagnostics"""
         workspace_dir = find_ros2_workspace()
         ros2_distro = get_ros2_distro()
         use_docker = is_docker_available()
@@ -34,8 +183,46 @@ class WorkspaceView(AsyncAPIView):
             "is_built": False,
             "has_src": False,
             "has_install": False,
-            "packages": []
+            "packages": [],
+            "diagnostics": {}
         }
+        
+        # Add diagnostic information
+        diagnostics = {}
+        diagnostics["docker_available"] = use_docker
+        diagnostics["container_name"] = ros2_container
+        diagnostics["container_running"] = False
+        
+        if use_docker and ros2_container:
+            try:
+                result = subprocess.run(
+                    ['docker', 'ps', '--filter', f'name={ros2_container}', '--format', '{{.Names}}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                diagnostics["container_running"] = ros2_container in result.stdout
+                if diagnostics["container_running"]:
+                    # Check what's in /app
+                    ls_result = subprocess.run(
+                        ['docker', 'exec', ros2_container, 'ls', '-la', '/app'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    diagnostics["app_contents"] = ls_result.stdout if ls_result.returncode == 0 else "Error listing /app"
+                    
+                    # Check src
+                    src_check = subprocess.run(
+                        ['docker', 'exec', ros2_container, 'test', '-d', '/app/src'],
+                        capture_output=True,
+                        timeout=5
+                    )
+                    diagnostics["src_exists"] = src_check.returncode == 0
+            except Exception as e:
+                diagnostics["error"] = str(e)
+        
+        workspace_info["diagnostics"] = diagnostics
         
         if workspace_dir:
             workspace_info["has_src"] = (workspace_dir / 'src').exists()
@@ -110,7 +297,7 @@ class WorkspaceView(AsyncAPIView):
                 build_cmd = (
                     f'source /opt/ros/{ros2_distro}/setup.bash && '
                     f'cd /app && '
-                    f'colcon build --symlink-install --packages-select lydlr_ai 2>&1'
+                    f'colcon build --packages-select lydlr_ai 2>&1'
                 )
                 
                 try:
@@ -154,7 +341,7 @@ class WorkspaceView(AsyncAPIView):
                 build_cmd = (
                     f'source /opt/ros/{ros2_distro}/setup.bash && '
                     f'cd {workspace_dir} && '
-                    f'colcon build --symlink-install --packages-select lydlr_ai 2>&1'
+                    f'colcon build --packages-select lydlr_ai 2>&1'
                 )
                 
                 try:

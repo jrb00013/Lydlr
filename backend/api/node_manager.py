@@ -20,12 +20,41 @@ process_info: Dict[str, Dict[str, Any]] = {}
 
 
 def get_ros2_distro() -> Optional[str]:
-    """Detect ROS2 distribution"""
+    """Detect ROS2 distribution - check in Docker container if available, otherwise local"""
+    # First, try to check in Docker container if available
+    if is_docker_available():
+        ros2_container = get_ros2_container()
+        try:
+            # Check if container is running
+            result = subprocess.run(
+                ['docker', 'ps', '--filter', f'name={ros2_container}', '--format', '{{.Names}}'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if ros2_container in result.stdout:
+                # Container is running, check for ROS2 inside it
+                distros = ['humble', 'foxy', 'galactic', 'rolling']
+                for distro in distros:
+                    check_result = subprocess.run(
+                        ['docker', 'exec', ros2_container, 'test', '-f', f'/opt/ros/{distro}/setup.bash'],
+                        capture_output=True,
+                        timeout=5
+                    )
+                    if check_result.returncode == 0:
+                        logger.info(f"Found ROS2 {distro} in container {ros2_container}")
+                        return distro
+        except Exception as e:
+            logger.debug(f"Could not check ROS2 in container: {e}")
+    
+    # Fallback: check local filesystem (for local development)
     distros = ['humble', 'foxy', 'galactic', 'rolling']
     for distro in distros:
         setup_file = Path(f'/opt/ros/{distro}/setup.bash')
         if setup_file.exists():
+            logger.info(f"Found ROS2 {distro} locally")
             return distro
+    
     return None
 
 
@@ -48,8 +77,40 @@ def is_docker_available() -> bool:
 
 
 def find_ros2_workspace() -> Optional[Path]:
-    """Find ROS2 workspace directory - use container paths"""
-    # In Docker, use container paths
+    """Find ROS2 workspace directory - check in Docker container if available, otherwise local"""
+    # First, try to check in Docker container if available
+    if is_docker_available():
+        ros2_container = get_ros2_container()
+        try:
+            # Check if container is running
+            result = subprocess.run(
+                ['docker', 'ps', '--filter', f'name={ros2_container}', '--format', '{{.Names}}'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if ros2_container in result.stdout:
+                # Container is running, check for workspace inside it
+                # Check if /app/src exists in container (standard ROS2 workspace structure)
+                check_result = subprocess.run(
+                    ['docker', 'exec', ros2_container, 'test', '-d', '/app/src'],
+                    capture_output=True,
+                    timeout=5
+                )
+                if check_result.returncode == 0:
+                    # Found workspace in container at /app
+                    logger.info(f"Found ROS2 workspace at /app in container {ros2_container}")
+                    return Path("/app")  # This will be used with docker exec
+                else:
+                    logger.warning(f"Container {ros2_container} is running but /app/src not found")
+            else:
+                logger.warning(f"Container {ros2_container} is not running. Available containers: {result.stdout}")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout checking container {ros2_container}")
+        except Exception as e:
+            logger.warning(f"Could not check workspace in container {ros2_container}: {e}")
+    
+    # Fallback: check local filesystem (for local development)
     container_workspace = os.getenv('ROS2_WORKSPACE', '/app')
     if Path(container_workspace).exists():
         # Check if it's a ROS2 workspace
@@ -71,6 +132,7 @@ def find_ros2_workspace() -> Optional[Path]:
         if path and path.exists() and (path / 'src').exists():
             # Check for install directory (might not exist if not built yet)
             if (path / 'install').exists() or (path / 'src').exists():
+                logger.info(f"Found ROS2 workspace locally at {path}")
                 return path
     
     return None
@@ -198,14 +260,114 @@ def start_node(node_id: str, model_version: Optional[str] = None) -> Dict[str, A
     
     # Find ROS2 workspace
     workspace_dir = find_ros2_workspace()
+    
+    # If workspace_dir is /app, it's a container workspace - ensure Docker is used
+    if workspace_dir and str(workspace_dir) == '/app':
+        # Force Docker usage for container workspace
+        if not use_docker:
+            logger.warning("Workspace is in container (/app) but Docker not detected. Re-checking Docker availability...")
+            use_docker = is_docker_available()
+            if not use_docker:
+                return {
+                    "status": "error",
+                    "error": "Workspace is in Docker container but Docker is not available. Please ensure Docker is installed and accessible.",
+                    "diagnostic": {
+                        "workspace_path": str(workspace_dir),
+                        "docker_required": True
+                    }
+                }
+        if not ros2_container:
+            ros2_container = get_ros2_container()
+        logger.info(f"Detected container workspace at /app, using Docker container: {ros2_container}")
+    
     if not workspace_dir:
-        return {
-            "status": "error",
-            "error": "ROS2 workspace not found. Please ensure the workspace is built and install/setup.bash exists."
-        }
+        # If Docker is available, try to verify workspace exists in container
+        if use_docker and ros2_container:
+            try:
+                # Check if container is actually running
+                ps_result = subprocess.run(
+                    ['docker', 'ps', '--filter', f'name={ros2_container}', '--format', '{{.Names}}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                container_running = ros2_container in ps_result.stdout
+                
+                if not container_running:
+                    return {
+                        "status": "error",
+                        "error": f"ROS2 container '{ros2_container}' is not running. Please start it with: docker-compose up ros2-runtime",
+                        "diagnostic": {
+                            "container_name": ros2_container,
+                            "container_running": False,
+                            "available_containers": ps_result.stdout.strip().split('\n') if ps_result.returncode == 0 else []
+                        }
+                    }
+                
+                # Check if workspace exists in container
+                result = subprocess.run(
+                    ['docker', 'exec', ros2_container, 'test', '-d', '/app/src'],
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    # Workspace exists in container, use /app as workspace
+                    workspace_dir = Path('/app')
+                    logger.info("Found workspace in container, using /app")
+                else:
+                    # Get more diagnostic info
+                    ls_result = subprocess.run(
+                        ['docker', 'exec', ros2_container, 'ls', '-la', '/app'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    app_contents = ls_result.stdout if ls_result.returncode == 0 else "Could not list /app"
+                    
+                    return {
+                        "status": "error",
+                        "error": f"ROS2 workspace not found in container '{ros2_container}'. /app/src directory does not exist.",
+                        "diagnostic": {
+                            "container_name": ros2_container,
+                            "container_running": True,
+                            "/app_contents": app_contents,
+                            "suggestion": "The ros2-runtime container may not have the workspace mounted correctly. Check docker-compose.yml volumes."
+                        }
+                    }
+            except subprocess.TimeoutExpired:
+                return {
+                    "status": "error",
+                    "error": f"Timeout checking container '{ros2_container}'. Container may be unresponsive.",
+                    "diagnostic": {
+                        "container_name": ros2_container,
+                        "timeout": True
+                    }
+                }
+            except Exception as e:
+                logger.warning(f"Could not verify workspace in container: {e}")
+                return {
+                    "status": "error",
+                    "error": f"ROS2 workspace not found. Could not verify container workspace: {str(e)}",
+                    "diagnostic": {
+                        "container_name": ros2_container,
+                        "exception": str(e),
+                        "exception_type": type(e).__name__
+                    }
+                }
+        else:
+            return {
+                "status": "error",
+                "error": "ROS2 workspace not found. Please ensure the workspace is built and install/setup.bash exists.",
+                "diagnostic": {
+                    "docker_available": use_docker,
+                    "container_name": ros2_container if use_docker else None,
+                    "suggestion": "If using Docker, ensure the ros2-runtime container is running and has the workspace mounted."
+                }
+            }
     
     # Check if workspace is built (check in container if using Docker)
-    if use_docker:
+    # If workspace_dir is /app, it's definitely in a container, so use_docker should be True
+    if use_docker and ros2_container:
         # Check if install/setup.bash exists in container
         try:
             result = subprocess.run(
@@ -225,7 +387,7 @@ def start_node(node_id: str, model_version: Optional[str] = None) -> Dict[str, A
                 build_cmd = (
                     f'source /opt/ros/{ros2_distro}/setup.bash && '
                     f'cd /app && '
-                    f'colcon build --symlink-install --packages-select lydlr_ai'
+                    f'colcon build --packages-select lydlr_ai'
                 )
                 build_result = subprocess.run(
                     ['docker', 'exec', ros2_container, '/bin/bash', '-c', build_cmd],
@@ -251,8 +413,8 @@ def start_node(node_id: str, model_version: Optional[str] = None) -> Dict[str, A
                     "status": "error",
                     "error": f"Failed to build workspace: {str(e)}"
                 }
-    else:
-        # Local check
+    elif workspace_dir:
+        # Local check (only if not using container)
         install_setup = workspace_dir / 'install' / 'setup.bash'
         if not install_setup.exists():
             return {
@@ -489,28 +651,32 @@ def get_node_status(node_id: str) -> Dict[str, Any]:
     info = process_info.get(node_id, {})
     container = info.get('container')
     
-    # Check if running in Docker
+    # Check if running in Docker - use process name check which is more reliable
     if container and is_docker_available():
         try:
-            # Check if process exists in container
-            pid = info.get('pid')
-            if pid:
-                result = subprocess.run(
-                    ['docker', 'exec', container, 'ps', '-p', str(pid)],
-                    capture_output=True,
-                    timeout=2
-                )
-                if result.returncode == 0:
-                    return {
-                        "status": "running",
-                        "pid": pid,
-                        "started_at": info.get("started_at"),
-                        "log_file": info.get("log_file"),
-                        "model_version": info.get("model_version"),
-                        "container": container
-                    }
+            # Check if process exists in container by name (more reliable than PID)
+            result = subprocess.run(
+                ['docker', 'exec', container, 'pgrep', '-f', f'edge_compressor_node.*{node_id}'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                # Process is running - get the PID
+                pid = int(result.stdout.strip().split('\n')[0])
+                # Update process_info with current PID in case it changed
+                if node_id in process_info:
+                    process_info[node_id]['pid'] = pid
+                return {
+                    "status": "running",
+                    "pid": pid,
+                    "started_at": info.get("started_at"),
+                    "log_file": info.get("log_file"),
+                    "model_version": info.get("model_version"),
+                    "container": container
+                }
         except Exception as e:
-            logger.warning(f"Failed to check node {node_id} status in Docker: {e}")
+            logger.debug(f"Failed to check node {node_id} status in Docker: {e}")
     
     # Check local processes
     if node_id in running_processes:
@@ -529,11 +695,41 @@ def get_node_status(node_id: str) -> Dict[str, Any]:
         else:
             # Process has exited
             del running_processes[node_id]
+            if node_id in process_info:
+                process_info[node_id]["status"] = "stopped"
             return {
                 "status": "stopped",
                 "exit_code": poll_result,
                 "pid": None
             }
+    
+    # If we have container info but process not found, it might have stopped
+    if container and is_docker_available():
+        # Double-check by looking for any edge_compressor_node process
+        try:
+            result = subprocess.run(
+                ['docker', 'exec', container, 'pgrep', '-f', f'edge_compressor_node.*{node_id}'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                # Found it! Update process_info
+                pid = int(result.stdout.strip().split('\n')[0])
+                if node_id not in process_info:
+                    process_info[node_id] = {}
+                process_info[node_id].update({
+                    "pid": pid,
+                    "container": container,
+                    "status": "running"
+                })
+                return {
+                    "status": "running",
+                    "pid": pid,
+                    "container": container
+                }
+        except Exception:
+            pass
     
     return {
         "status": "not_running",

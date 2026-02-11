@@ -76,10 +76,25 @@ def get_ros2_distro() -> Optional[str]:
 def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://localhost:8000"):
     """
     Use ros2 topic echo in a loop to collect metrics and forward to backend
+    Note: Metrics are actually published by ROS2 nodes themselves via topics.
+    This collector is optional - if ROS2 is not available locally, metrics will
+    still be collected when nodes POST them directly to /api/metrics/
     """
+    # Check if we should use Docker to access ROS2 in container
+    from backend.api.node_manager import is_docker_available, get_ros2_container
+    
+    use_docker = is_docker_available()
+    ros2_container = get_ros2_container() if use_docker else None
+    
+    # If using Docker, we can't easily run ros2 topic echo from backend
+    # Metrics should come from ROS2 nodes themselves via POST to /api/metrics/
+    if use_docker and ros2_container:
+        logger.debug(f"Metrics collection for {node_id} skipped - ROS2 is in container. Nodes will POST metrics directly.")
+        return
+    
     ros2_cmd = get_ros2_command()
     if not ros2_cmd:
-        logger.warning(f"ROS2 not found, cannot collect metrics for {node_id}")
+        logger.debug(f"ROS2 not found locally for {node_id}. Metrics will be collected when nodes POST to /api/metrics/")
         return
     
     workspace_dir = find_ros2_workspace()
@@ -170,12 +185,21 @@ def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://loc
 
 
 def start_metrics_collector(node_id: str, api_url: str = "http://localhost:8000"):
-    """Start metrics collection for a node"""
+    """Start metrics collection for a node
+    
+    Note: In Docker setups, ROS2 nodes publish metrics directly to /api/metrics/
+    via HTTP POST, so this collector is optional. It's mainly useful for local
+    development where ROS2 is available on the host.
+    """
     if node_id in active_collectors:
-        logger.info(f"Metrics collector for {node_id} already running")
+        logger.debug(f"Metrics collector for {node_id} already running")
         return
     
-    collect_metrics_via_ros2_topic_echo(node_id, api_url)
+    # Try to start collector, but don't fail if ROS2 is not available
+    try:
+        collect_metrics_via_ros2_topic_echo(node_id, api_url)
+    except Exception as e:
+        logger.debug(f"Could not start metrics collector for {node_id}: {e}. Nodes will POST metrics directly.")
 
 
 def stop_metrics_collector(node_id: str):

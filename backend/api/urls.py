@@ -8,7 +8,8 @@ from backend.api.views import (
     NodeCreateView, NodeConfigurationView,
     DeviceListView, DeviceDetailView, DeviceCreateView,
     SensorListView, NodeDeviceConnectionView,
-    WorkspaceView, ModelListView, MetricsView, SystemStatsView,
+    WorkspaceView, DiagnosticView, OrchestrationStatusView,
+    ModelListView, MetricsView, SystemStatsView,
     DeploymentView
 )
 
@@ -34,5 +35,7 @@ urlpatterns = [
     path('sensors/', SensorListView.as_view(), name='sensors-list'),
     path('connections/', NodeDeviceConnectionView.as_view(), name='node-device-connections'),
     path('workspace/', WorkspaceView.as_view(), name='workspace'),
+    path('diagnostic/', DiagnosticView.as_view(), name='diagnostic'),
+    path('orchestration/status/', OrchestrationStatusView.as_view(), name='orchestration-status'),
 ]
 
