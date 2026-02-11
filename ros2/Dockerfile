@@ -47,34 +47,54 @@ RUN mkdir -p /app/src/lydlr_ai/models && \
     mkdir -p /app/install && \
     mkdir -p /app/log
 
+# Verify ROS2 is available
+RUN if [ -f "/opt/ros/humble/setup.bash" ] || [ -f "/opt/ros/humble/setup.sh" ]; then \
+        echo "ROS2 Humble found in base image"; \
+    else \
+        echo "ERROR: ROS2 Humble not found in /opt/ros/humble/"; \
+        ls -la /opt/ros/ 2>/dev/null || echo "No /opt/ros/ directory"; \
+        exit 1; \
+    fi
+
 # Build ROS2 workspace (with error handling)
 RUN . /opt/ros/humble/setup.sh && \
     cd /app && \
-    colcon build --symlink-install --packages-select lydlr_ai || \
+    colcon build --packages-select lydlr_ai || \
     (echo "Build failed, but continuing..." && \
-     colcon build --symlink-install --packages-select lydlr_ai --cmake-args -DCMAKE_BUILD_TYPE=Release || true)
+     colcon build --packages-select lydlr_ai --cmake-args -DCMAKE_BUILD_TYPE=Release || true)
 
 # Setup environment script
 RUN echo '#!/bin/bash\n\
 set -e\n\
+# Set environment variables\n\
 export PYTHONPATH=/app/src:/app/src/lydlr_ai:${PYTHONPATH}\n\
 export MODEL_DIR=/app/models\n\
 export NODE_ID=${NODE_ID:-node_0}\n\
-source /opt/ros/humble/setup.bash\n\
+# Source ROS2 - try multiple locations\n\
+if [ -f "/opt/ros/humble/setup.bash" ]; then\n\
+    source /opt/ros/humble/setup.bash\n\
+elif [ -f "/opt/ros/humble/setup.sh" ]; then\n\
+    source /opt/ros/humble/setup.sh\n\
+else\n\
+    echo "ERROR: ROS2 setup file not found in /opt/ros/humble/"\n\
+    exit 1\n\
+fi\n\
+# Source workspace setup if it exists\n\
 if [ -f /app/install/setup.bash ]; then\n\
     source /app/install/setup.bash\n\
 fi\n\
-exec "$@"' > /ros_entrypoint.sh && \
-    chmod +x /ros_entrypoint.sh
-
-# Setup display for headless operation
-RUN echo 'export XDG_RUNTIME_DIR=/tmp/runtime-root\n\
+# Setup display for headless operation\n\
+export XDG_RUNTIME_DIR=/tmp/runtime-root\n\
 mkdir -p $XDG_RUNTIME_DIR && chmod 700 $XDG_RUNTIME_DIR\n\
 if ! pgrep -x Xvfb > /dev/null; then\n\
     Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &\n\
     sleep 1\n\
 fi\n\
-export DISPLAY=:99' >> /ros_entrypoint.sh
+export DISPLAY=:99\n\
+# Execute command\n\
+exec "$@"' > /ros_entrypoint.sh && \
+    chmod +x /ros_entrypoint.sh
+
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]
