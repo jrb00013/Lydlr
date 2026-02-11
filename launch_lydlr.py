@@ -87,7 +87,7 @@ class LydlrLauncher:
         build_cmd = [
             "bash", "-c",
             "source /opt/ros/humble/setup.bash && "
-            "colcon build --symlink-install --packages-select lydlr_ai"
+            "colcon build --packages-select lydlr_ai"
         ]
         
         result = subprocess.run(build_cmd, capture_output=True, text=True)

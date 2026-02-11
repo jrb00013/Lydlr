@@ -65,11 +65,33 @@ print_info() {
 
 # Step 1: Check ROS2
 print_info "Step 1: Checking ROS2 installation..."
+# Try multiple possible ROS2 locations
+ROS2_SETUP=""
 if [ -f "/opt/ros/humble/setup.bash" ]; then
-    source /opt/ros/humble/setup.bash
-    print_status "ROS2 Humble found"
+    ROS2_SETUP="/opt/ros/humble/setup.bash"
+elif [ -f "/opt/ros/humble/setup.sh" ]; then
+    ROS2_SETUP="/opt/ros/humble/setup.sh"
+elif [ -d "/opt/ros/humble" ]; then
+    # Try to find setup file
+    ROS2_SETUP=$(find /opt/ros/humble -name "setup.bash" -o -name "setup.sh" | head -1)
+fi
+
+if [ -n "$ROS2_SETUP" ] && [ -f "$ROS2_SETUP" ]; then
+    source "$ROS2_SETUP"
+    print_status "ROS2 Humble found at $ROS2_SETUP"
+    # Verify ROS2 is working
+    if command -v ros2 &> /dev/null; then
+        print_status "ROS2 command available: $(ros2 --version 2>/dev/null || echo 'version check failed')"
+    else
+        print_error "ROS2 setup file found but ros2 command not available"
+        exit 1
+    fi
 else
-    print_error "ROS2 Humble not found. Please install ROS2 Humble first."
+    print_error "ROS2 Humble not found. Please ensure ROS2 is installed."
+    print_info "Checked locations:"
+    print_info "  /opt/ros/humble/setup.bash"
+    print_info "  /opt/ros/humble/setup.sh"
+    print_info "  /opt/ros/humble/"
     exit 1
 fi
 
@@ -144,7 +166,8 @@ mkdir -p install log
 
 # Build package with better error handling
 print_info "Building lydlr_ai package..."
-if colcon build --symlink-install --packages-select lydlr_ai 2>&1 | tee /tmp/lydlr_build.log; then
+# Build without symlink-install to avoid --editable issues
+if colcon build --packages-select lydlr_ai 2>&1 | tee /tmp/lydlr_build.log; then
     if [ -f install/setup.bash ]; then
         source install/setup.bash
         print_status "Package built successfully"
@@ -159,6 +182,7 @@ else
         source install/setup.bash
         print_status "Using existing build"
     else
+        print_error "No existing build found. Cannot continue."
         exit 1
     fi
 fi
@@ -215,7 +239,14 @@ fi
 print_info "Step 7: Creating directories for nodes..."
 for NODE_ID in "${NODE_IDS[@]}"; do
     mkdir -p "$MODEL_DIR/$NODE_ID"
-    mkdir -p "$SCRIPT_DIR/scripts/$NODE_ID"
+    # Try to create scripts directory, but don't fail if it's read-only
+    if mkdir -p "$SCRIPT_DIR/scripts/$NODE_ID" 2>/dev/null; then
+        print_status "Created scripts directory for $NODE_ID"
+    else
+        # Use a writable location instead (like /app/log or /tmp)
+        mkdir -p "/app/log/scripts/$NODE_ID"
+        print_info "Using /app/log/scripts/$NODE_ID (scripts directory is read-only)"
+    fi
 done
 print_status "Directories created for ${#NODE_IDS[@]} nodes"
 
