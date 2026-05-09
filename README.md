@@ -25,6 +25,10 @@ Enable AI processing on devices with limited bandwidth and computational resourc
 ### IoT Systems
 Compress sensor data from distributed IoT networks for efficient transmission to central monitoring systems. Reduces network congestion, extends battery life of edge devices, and enables cost-effective scaling of sensor networks. Essential for smart cities, industrial monitoring, and environmental sensing applications where thousands of devices transmit data continuously.
 
+## History
+Developed to meet the growing need for lightweight AI at the edge, Lydlr represents part of a broader trend in robotics and embedded AI. It enables high-performance multimodal perception and reasoning within strict energy and bandwidth constraints, advancing real-time autonomy and distributed intelligence in the ROS2 ecosystem.
+
+
 ## Impact
 
 Lydlr's adaptive compression technology delivers measurable improvements across key performance metrics:
@@ -290,6 +294,41 @@ Stop both terminals with Ctrl+C when done.
 - Step over: F10  
 - Step in: F11  
 - Enable `"justMyCode": false` to debug libraries
+![Image](https://images.openai.com/static-rsc-4/vq7a8SGRsFQAAGV9yusbgcMyrVwKDGnfPpDBPV8KSRFxUdSM4AzE0Ii421kAw8OcXYHIl3QUcrEAMCRF9f9XEaRgMxo-byKJyGDeybzKfwsqMmd5FkKGtpDuXlPi9CrZcLHFqP6Y6E4Dkxh6io3d2z_UdszrYrBVlcvH1sRy-cR9YYV1hg9_uJXxVds6Zd-i?purpose=fullsize)
+
+![Image](https://images.openai.com/static-rsc-4/q1c6uKM-bUFUOzoznSh0-oX60mnoVZGUzkqQ0TIrIlvqSxAmcA_dyXOfGHKcrBKaIraz7UN143vC-fPko0w9Qg3YO5T8czjiYCOUXXGxhZS0LAeRorJrP9_pI1R-zNgmvqd0zL2X0GFYnBsfQfTeMOBKgH82X3miIoVIYE70EFVK-kDwvPSYgOv1nmo0CbTe?purpose=fullsize)
+
+![Image](https://images.openai.com/static-rsc-4/hFjrPaFdOpq4X5HuwYWqJZBZEqp7uJ5oIfoJ6ETGjUD2HMXyEBaZCJDYtplJkKAdWHw4qjX0AnE8Jxuh3yL42Nd3-Ynqprh_HNbob_IMtiVsYXpRPg9w9TTGnOQkCkfmSc1HrkB0ovsecAJTfbVKihdwf8EVE3PoJlp5AcfnQXzq6o3poda2f6YnuLJeC9g8?purpose=fullsize)
+
+![Image](https://images.openai.com/static-rsc-4/JYvJkvTYsxKruuQ1gt985ADfa4C7BPZp8q-5uVnr5rSFtcx-1XGyrRJ1ei2NzF7z_YPgRole5OzTefEpGOQUxezL5oCxk4xbTC62ObRRVFvlk7VaM8RRNf7GbjfMeAe--YuXXkLytj6ymVXvr8BOmwUV5v5gib6exetBZ4vLzoqaGktVHat9D0gNZcpnT2EF?purpose=fullsize)
+
+![Image](https://images.openai.com/static-rsc-4/Q2CaJfwlcbqNpL7S4ljZc8egr-bRnzJIK5osrs1diA-Tv3hLQqwOrgdX65iVeL-0defo6IQjeODXgTdGBBNF5FNMn5h0nElVf_RXZ1jo1x8Oge8F231mD12Qj7TKdybftbisYhE3Kr3Yjn_jPPrBeHgdy0gDedVZuHwQNiOkIUXOlmeVOgxR6a9DW5rhkJZM?purpose=fullsize)
+
+## Lydlr
+
+Lydlr is a software framework designed for multimodal artificial intelligence (AI) compression and deployment at the edge, integrated with the Robot Operating System 2 ecosystem. It aims to optimize the performance of machine-learning models across heterogeneous edge devices where bandwidth, memory, and compute resources are limited.
+
+### Key facts
+
+* **Primary domain:** Multimodal edge AI and robotics
+* **Integration:** Built around ROS2 nodes and message-passing
+* **Function:** Compresses and optimizes multimodal data streams
+* **Deployment target:** Resource-constrained edge devices
+* **Focus:** Efficient inference for robotics and IoT applications
+
+### Architecture and Design
+
+Lydlr operates as a modular compression and inference layer within ROS2. It enables efficient encoding and transmission of multimodal data—such as vision, audio, and sensor inputs—between distributed ROS2 nodes. By employing adaptive quantization and neural compression, Lydlr reduces model size and latency while preserving task performance. Its containerized components can be orchestrated alongside standard ROS2 packages.
+
+### Use Cases
+
+The system supports robotics and IoT applications where real-time decision-making is required without relying heavily on cloud computation. Example use cases include autonomous mobile robots, industrial inspection systems, and smart surveillance networks. Lydlr allows these devices to process sensor fusion tasks locally while keeping communication overhead low.
+
+### Technical Features
+
+Lydlr leverages model pruning, quantization-aware training, and knowledge distillation techniques to achieve efficient model deployment. It also supports runtime optimization for hardware accelerators such as GPUs, NPUs, and FPGAs commonly used in edge computing. Compatibility with standard ROS2 message types ensures seamless integration into existing robotics pipelines.
+
+### Development and Impact
 
 ## License
 
