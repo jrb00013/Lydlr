@@ -152,8 +152,10 @@ services:
       - ROS_DOMAIN_ID=0
       - PYTHONPATH=/app/src:/app/src/lydlr_ai:/app/.venv/lib/python3.10/site-packages
       - MODEL_DIR=/app/models
-      - NUM_NODES=2
-      - NODE_IDS=node_0,node_1
+      - NUM_NODES=3
+      - NODE_IDS=node_0,node_1,iot_gateway_01
+      - LYDLR_VERTICAL=drone
+      - METRICS_API_URL=http://127.0.0.1:8000/api/metrics/
       - MONGODB_URL=mongodb://lydlr:lydlr_password@mongodb:27017/lydlr_db?authSource=admin
       - REDIS_URL=redis://redis:6379
     volumes:

@@ -221,19 +221,23 @@ if command -v python3 &> /dev/null && [ -f "$SCRIPT_DIR/scripts/get_nodes_from_d
         else
             print_info "No nodes found in database, will start with default configuration"
             # Default: start with 2 nodes if nothing configured
-            NODE_IDS=("node_0" "node_1")
-            TARGET_NODE_COUNT=2
+            NODE_IDS=("node_0" "node_1" "iot_gateway_01")
+            TARGET_NODE_COUNT=3
         fi
     else
-        print_info "Could not connect to database, using default nodes"
-        NODE_IDS=("node_0" "node_1")
-        TARGET_NODE_COUNT=2
+        print_info "Could not connect to database, using default drone/IoT fleet"
+        NODE_IDS=("node_0" "node_1" "iot_gateway_01")
+        TARGET_NODE_COUNT=3
     fi
 else
-    print_info "Python helper not available, using default nodes"
-    NODE_IDS=("node_0" "node_1")
-    TARGET_NODE_COUNT=2
+    print_info "Python helper not available, using default drone/IoT fleet"
+    NODE_IDS=("node_0" "node_1" "iot_gateway_01")
+    TARGET_NODE_COUNT=3
 fi
+
+LYDLR_VERTICAL=${LYDLR_VERTICAL:-drone}
+export LYDLR_VERTICAL
+print_info "Fleet vertical profile: $LYDLR_VERTICAL"
 
 # Step 8: Create necessary directories
 print_info "Step 7: Creating directories for nodes..."
@@ -314,9 +318,18 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Launch synthetic data publisher
-print_info "Launching synthetic data publisher..."
-ros2 run lydlr_ai synthetic_multimodal_publisher > /tmp/lydlr_synthetic.log 2>&1 &
+# ROS2 communication infrastructure
+print_info "Launching communication hub + transport relay..."
+ros2 run lydlr_ai communication_hub > /tmp/lydlr_hub.log 2>&1 &
+HUB_PID=$!
+ros2 run lydlr_ai transport_relay > /tmp/lydlr_relay.log 2>&1 &
+RELAY_PID=$!
+sleep 1
+print_status "Hub (PID: $HUB_PID) + Relay (PID: $RELAY_PID)"
+
+# Launch synthetic data publisher (drone / IoT profiles via LYDLR_VERTICAL)
+print_info "Launching synthetic data publisher ($LYDLR_VERTICAL profile)..."
+LYDLR_VERTICAL=$LYDLR_VERTICAL ros2 run lydlr_ai synthetic_multimodal_publisher > /tmp/lydlr_synthetic.log 2>&1 &
 SYNTHETIC_PID=$!
 sleep 2
 print_status "Synthetic publisher started (PID: $SYNTHETIC_PID)"
@@ -326,7 +339,15 @@ EDGE_PIDS=()
 NODE_INDEX=0
 for NODE_ID in "${NODE_IDS[@]}"; do
     print_info "Launching edge node: $NODE_ID..."
-    NODE_ID=$NODE_ID ros2 run lydlr_ai edge_compressor_node > /tmp/lydlr_${NODE_ID}.log 2>&1 &
+    if [[ "$NODE_ID" == iot_* ]]; then
+        NODE_VERTICAL=iot
+    else
+        NODE_VERTICAL=drone
+    fi
+    METRICS_API_URL=${METRICS_API_URL:-http://127.0.0.1:8000/api/metrics/}
+    NODE_ID=$NODE_ID NODE_VERTICAL=$NODE_VERTICAL LYDLR_VERTICAL=$NODE_VERTICAL \
+        METRICS_API_URL=$METRICS_API_URL \
+        ros2 run lydlr_ai edge_compressor_node > /tmp/lydlr_${NODE_ID}.log 2>&1 &
     EDGE_PIDS+=($!)
     sleep 1
     print_status "$NODE_ID started (PID: ${EDGE_PIDS[$NODE_INDEX]})"
@@ -353,6 +374,7 @@ sleep 3  # Wait for nodes to be ready
 
 for NODE_ID in "${NODE_IDS[@]}"; do
     print_info "Deploying model to $NODE_ID..."
+    ros2 topic pub --once /lydlr/${NODE_ID}/command/deploy std_msgs/String "data: '${MODEL_VERSION}'" > /dev/null 2>&1 || \
     ros2 topic pub --once /${NODE_ID}/model/deploy std_msgs/String "data: '${MODEL_VERSION}'" > /dev/null 2>&1
     sleep 1
     print_status "Model deployed to $NODE_ID"
