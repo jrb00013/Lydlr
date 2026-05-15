@@ -9,7 +9,9 @@ from backend.api.views import (
     DeviceListView, DeviceDetailView, DeviceCreateView,
     SensorListView, NodeDeviceConnectionView,
     WorkspaceView, DiagnosticView, OrchestrationStatusView,
-    ModelListView, MetricsView, SystemStatsView,
+    ModelListView, ModelRegistryView, ModelRegistryTableView,
+    ModelArtifactDetailView, ModelSyncView, ModelUploadView,
+    MetricsView, SystemStatsView, MetricsRollupsView, MetricsFleetView,
     DeploymentView
 )
 
@@ -24,9 +26,16 @@ urlpatterns = [
     path('nodes/<str:node_id>/<str:action>/', NodeControlView.as_view(), name='node-control'),
     path('nodes/<str:node_id>/', NodeDetailView.as_view(), name='node-detail'),
     path('models/', ModelListView.as_view(), name='models-list'),
+    path('models/upload/', ModelUploadView.as_view(), name='models-upload'),
+    path('models/sync/', ModelSyncView.as_view(), name='models-sync'),
+    path('models/registry/', ModelRegistryView.as_view(), name='models-registry'),
+    path('models/registry/table/', ModelRegistryTableView.as_view(), name='models-registry-table'),
+    path('models/registry/<str:artifact_id>/', ModelArtifactDetailView.as_view(), name='models-artifact-detail'),
     path('deploy/', DeploymentView.as_view(), name='deploy'),
     path('deployments/', DeploymentView.as_view(), name='deployments'),
     path('metrics/', MetricsView.as_view(), name='metrics'),
+    path('metrics/rollups/', MetricsRollupsView.as_view(), name='metrics-rollups'),
+    path('metrics/fleet/', MetricsFleetView.as_view(), name='metrics-fleet'),
     path('stats/', SystemStatsView.as_view(), name='stats'),
     path('devices/', DeviceListView.as_view(), name='devices-list'),
     path('devices/create/', DeviceCreateView.as_view(), name='device-create'),

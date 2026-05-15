@@ -23,8 +23,20 @@ from backend.api.views.device_views import (
     NodeDeviceConnectionView
 )
 from backend.api.views.workspace_views import WorkspaceView, DiagnosticView, OrchestrationStatusView
-from backend.api.views.model_views import ModelListView
-from backend.api.views.metrics_views import MetricsView, SystemStatsView
+from backend.api.views.model_views import (
+    ModelListView,
+    ModelRegistryView,
+    ModelRegistryTableView,
+    ModelArtifactDetailView,
+    ModelSyncView,
+    ModelUploadView,
+)
+from backend.api.views.metrics_views import (
+    MetricsView,
+    SystemStatsView,
+    MetricsRollupsView,
+    MetricsFleetView,
+)
 from backend.api.views.deployment_views import DeploymentView
 
 __all__ = [
@@ -52,9 +64,16 @@ __all__ = [
     'DiagnosticView',
     # Models
     'ModelListView',
+    'ModelRegistryView',
+    'ModelRegistryTableView',
+    'ModelArtifactDetailView',
+    'ModelSyncView',
+    'ModelUploadView',
     # Metrics
     'MetricsView',
     'SystemStatsView',
+    'MetricsRollupsView',
+    'MetricsFleetView',
     # Deployment
     'DeploymentView',
 ]
