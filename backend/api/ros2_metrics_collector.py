@@ -73,6 +73,59 @@ def get_ros2_distro() -> Optional[str]:
     return None
 
 
+def collect_metrics_via_docker_exec(
+    node_id: str, container: str, api_url: str = "http://localhost:8000"
+):
+    """Collect metrics by exec'ing ros2 topic echo inside the ROS2 container."""
+    topic_name = f"/lydlr/{node_id}/transport/metrics"
+    legacy_topic = f"/{node_id}/metrics"
+
+    def collect_loop():
+        logger.info(f"Docker metrics collector for {node_id} via {container}")
+        while node_id in active_collectors:
+            try:
+                cmd = (
+                    "source /opt/ros/humble/setup.bash && "
+                    f"(timeout 4 ros2 topic echo {topic_name} --once 2>/dev/null || "
+                    f"timeout 4 ros2 topic echo {legacy_topic} --once 2>/dev/null)"
+                )
+                result = subprocess.run(
+                    [
+                        "docker", "exec", container,
+                        "bash", "-c", cmd,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+                if result.returncode == 0 and result.stdout:
+                    import re
+                    floats = re.findall(r"[-+]?\d*\.\d+|\d+", result.stdout)
+                    if len(floats) >= 5:
+                        metrics_data = {
+                            "node_id": node_id,
+                            "compression_ratio": float(floats[0]),
+                            "latency_ms": float(floats[1]),
+                            "compression_level": float(floats[2]),
+                            "quality_score": float(floats[3]),
+                            "bandwidth_estimate": float(floats[4]),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                        try:
+                            requests.post(f"{api_url}/api/metrics/", json=metrics_data, timeout=2)
+                        except Exception as exc:
+                            logger.debug(f"Docker metrics forward failed: {exc}")
+                time.sleep(2)
+            except Exception as e:
+                logger.debug(f"Docker metrics collect error for {node_id}: {e}")
+                time.sleep(5)
+
+    thread = threading.Thread(target=collect_loop, daemon=True)
+    thread.start()
+    active_collectors[node_id] = thread
+    logger.info(f"Started Docker metrics collector for {node_id}")
+
+
 def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://localhost:8000"):
     """
     Use ros2 topic echo in a loop to collect metrics and forward to backend
@@ -86,10 +139,8 @@ def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://loc
     use_docker = is_docker_available()
     ros2_container = get_ros2_container() if use_docker else None
     
-    # If using Docker, we can't easily run ros2 topic echo from backend
-    # Metrics should come from ROS2 nodes themselves via POST to /api/metrics/
     if use_docker and ros2_container:
-        logger.debug(f"Metrics collection for {node_id} skipped - ROS2 is in container. Nodes will POST metrics directly.")
+        collect_metrics_via_docker_exec(node_id, ros2_container, api_url)
         return
     
     ros2_cmd = get_ros2_command()
@@ -109,7 +160,8 @@ def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://loc
     
     install_setup = workspace_dir / 'install' / 'setup.bash'
     ros2_setup = f'/opt/ros/{ros2_distro}/setup.bash'
-    topic_name = f'/{node_id}/metrics'
+    topic_name = f'/lydlr/{node_id}/transport/metrics'
+    legacy_topic = f'/{node_id}/metrics'
     
     def collect_loop():
         logger.info(f"Starting metrics collection loop for {node_id}")
@@ -118,8 +170,9 @@ def collect_metrics_via_ros2_topic_echo(node_id: str, api_url: str = "http://loc
                 # Use ros2 topic echo with timeout
                 cmd_str = (
                     f'source {ros2_setup} && '
-                    f'source {install_setup} && '
-                    f'timeout 5 {ros2_cmd} topic echo {topic_name} --once 2>/dev/null'
+                    f' source {install_setup} && '
+                    f'(timeout 5 {ros2_cmd} topic echo {topic_name} --once 2>/dev/null || '
+                    f'timeout 5 {ros2_cmd} topic echo {legacy_topic} --once 2>/dev/null)'
                 )
                 
                 result = subprocess.run(
