@@ -23,6 +23,8 @@ const DEVICE_TYPE_CONFIG = {
   power_supply: { label: 'Power Supply' },
   edge_computer: { label: 'Edge Computer' },
   gateway: { label: 'Gateway' },
+  flight_controller: { label: 'UAV Flight Controller' },
+  edge_gateway: { label: 'IoT Edge Gateway' },
   network_switch: { label: 'Network Switch' },
   radar: { label: 'Radar' },
   depth_camera: { label: 'Depth Camera' },
