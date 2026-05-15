@@ -144,10 +144,20 @@ class DeploymentView(AsyncAPIView):
                     {
                         "$set": {
                             "model_version": model_version,
-                            "updated_at": datetime.utcnow()
+                            "last_update": datetime.utcnow()
                         }
                     }
                 )
+
+                from backend.api.repositories.model_repository import ModelArtifactRepository
+                artifact_repo = ModelArtifactRepository(db, MODEL_DIR)
+                artifact = await artifact_repo.get_by_version(model_version)
+                artifact_id = (
+                    artifact["artifact_id"]
+                    if artifact
+                    else f"multimodal_compressor_{model_version}"
+                )
+                await artifact_repo.assign_to_node(node_id, model_version, artifact_id)
                 
                 successful_nodes.append(node_id)
             except Exception as e:

@@ -70,8 +70,15 @@ class NodeListView(AsyncAPIView):
                 node['bandwidth_estimate'] = latest_metrics.get('bandwidth_estimate', 0.0)
                 node['compression_level'] = latest_metrics.get('compression_level', 0.0)
         
-        serializer = NodeStatusSerializer(nodes, many=True)
-        return Response(serializer.data)
+        # Preserve fleet metadata (vertical, display_name) from MongoDB
+        enriched = []
+        for node in nodes:
+            data = NodeStatusSerializer(node).data
+            for key in ('vertical', 'display_name', 'uplink_budget_kbps', 'sensors'):
+                if key in node:
+                    data[key] = node[key]
+            enriched.append(data)
+        return Response(enriched)
 
 
 class NodeDetailView(AsyncAPIView):
