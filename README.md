@@ -2,6 +2,13 @@
 
 ## Installation and Setup
 
+## Architecture (deep dive)
+
+- [MongoDB data layer](/docs/architecture/DATA_LAYER.md) — fleet collections, model registry, metrics TTL and rollups, API table endpoints  
+- [ROS 2 communication and transport](/docs/architecture/ROS2_COMMUNICATION.md) — `/lydlr/**` topic graph, LYDT wire encoding, QoS, ground relay  
+
+**Bring up:** `./start-lydlr.sh --build -d --ros2` • **Fleet launch (after `colcon build`):** `ros2 launch lydlr_ai drone_iot_transport.launch.py`
+
 ## Overview
 
 Lydlr is an AI-powered compression system designed to optimize storage and transmission of multimodal sensor data in real time. It processes data streams from cameras, LiDAR, IMU, and audio sensors by encoding and fusing them into a compact latent representation using convolutional and recurrent neural networks. The system leverages temporal context through LSTM layers to improve compression efficiency by learning patterns over time. A reinforcement learning-based controller dynamically adjusts compression levels based on system conditions such as CPU load, battery status, and network bandwidth, ensuring an optimal balance between data quality and resource usage. Additionally, a real-time quality assessment module uses perceptual metrics (LPIPS) to monitor reconstruction fidelity, enabling adaptive tuning on the fly. Synthetic sensor data streams simulate diverse environments for thorough testing and development. The entire pipeline is designed for deployment on edge devices like Raspberry Pi or NVIDIA Jetson, with model quantization and export capabilities for efficient execution on constrained hardware.
