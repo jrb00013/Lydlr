@@ -1,0 +1,137 @@
+.data-table {
+  width: 100%;
+}
+
+.data-table__scroll {
+  overflow-x: auto;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid #e2e8f0;
+}
+
+.data-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table__table thead {
+  background: #f1f5f9;
+}
+
+.data-table__table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.data-table__th-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.data-table__sort-icon {
+  font-size: 1rem !important;
+  opacity: 0.7;
+}
+
+.data-table__sort-icon--idle {
+  opacity: 0.35;
+}
+
+.data-table__table td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.data-table__table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.data-table__empty {
+  text-align: center;
+  padding: 2.5rem !important;
+  color: #64748b;
+}
+
+.data-table__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.data-table__pager {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.data-table__pager button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.data-table__pager button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.data-table--loading {
+  padding: 3rem;
+  text-align: center;
+  color: #64748b;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge--production {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.badge--registered {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.badge--drone {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.badge--iot {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge--multimodal {
+  background: #ede9fe;
+  color: #5b21b6;
+}
