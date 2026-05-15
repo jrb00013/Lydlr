@@ -2,6 +2,43 @@
   animation: fadeIn 0.5s ease-in;
 }
 
+.models-table-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.model-detail-panel {
+  margin-top: 1.5rem;
+}
+
+.model-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.model-detail-grid h4 {
+  margin: 0 0 0.5rem;
+  color: #64748b;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .models-header {
   display: flex;
   justify-content: space-between;

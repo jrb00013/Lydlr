@@ -2,6 +2,54 @@
   animation: fadeIn 0.5s ease-in;
 }
 
+.metrics-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem !important;
+}
+
+.metrics-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.metrics-tab {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.metrics-tab--active {
+  background: #1e293b;
+  color: #fff;
+  border-color: #1e293b;
+}
+
+.metrics-filters {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.metrics-filters select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.metrics-table-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
 .metrics-header {
   display: flex;
   justify-content: space-between;
