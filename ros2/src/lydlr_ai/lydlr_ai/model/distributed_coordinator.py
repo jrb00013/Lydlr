@@ -15,16 +15,18 @@ Distributed Coordinator Node
 - Real-time performance optimization
 """
 
+import os
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String, UInt8MultiArray
-from geometry_msgs.msg import Twist
-import numpy as np
-import json
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from collections import deque
 import threading
+
+from lydlr_ai.communication.topics import LydlrTopics, fleet_node_ids
+from lydlr_ai.communication.qos import qos_metrics, qos_coordination, qos_compressed_egress
+from lydlr_ai.communication import wire
 
 
 class DistributedCoordinator(Node):
@@ -49,8 +51,14 @@ class DistributedCoordinator(Node):
         self.metric_subscribers = {}
         self.compressed_subscribers = {}
         
-        # Publishers for coordination
+        # Publishers for coordination (LYDT wire + legacy)
         self.coordination_publishers: Dict[str, rclpy.publisher.Publisher] = {}
+        self.coordination_wire_publishers: Dict[str, rclpy.publisher.Publisher] = {}
+        self._coord_seq = 0
+
+        self.pub_fleet_perf = self.create_publisher(
+            String, LydlrTopics.COORDINATOR_PERF, qos_coordination()
+        )
         
         # Timer for coordination loop
         self.coordination_timer = self.create_timer(0.5, self.coordinate_nodes)  # 2 Hz
@@ -76,24 +84,34 @@ class DistributedCoordinator(Node):
             
             # Create subscribers for this node
             self.metric_subscribers[node_id] = self.create_subscription(
-                Float32MultiArray,
-                f'/{node_id}/metrics',
-                lambda msg, nid=node_id: self.node_metrics_callback(nid, msg),
-                10
+                UInt8MultiArray,
+                LydlrTopics.metrics_transport(node_id),
+                lambda msg, nid=node_id: self._wire_metrics_callback(nid, msg),
+                qos_metrics(),
             )
-            
+            self.create_subscription(
+                Float32MultiArray,
+                LydlrTopics.legacy_metrics(node_id),
+                lambda msg, nid=node_id: self.node_metrics_callback(nid, msg),
+                qos_metrics(),
+            )
+
             self.compressed_subscribers[node_id] = self.create_subscription(
                 UInt8MultiArray,
-                f'/{node_id}/compressed',
+                LydlrTopics.compressed_transport(node_id),
                 lambda msg, nid=node_id: self.compressed_data_callback(nid, msg),
-                10
+                qos_compressed_egress(),
             )
-            
-            # Create coordination publisher
+
             self.coordination_publishers[node_id] = self.create_publisher(
                 Float32MultiArray,
                 f'/{node_id}/coordination',
-                10
+                qos_coordination(),
+            )
+            self.coordination_wire_publishers[node_id] = self.create_publisher(
+                UInt8MultiArray,
+                LydlrTopics.coordination(node_id),
+                qos_coordination(),
             )
             
             # Allocate bandwidth
@@ -102,23 +120,38 @@ class DistributedCoordinator(Node):
             
             self.get_logger().info(f"✅ Registered node: {node_id} (Bandwidth: {self.allocated_bandwidth[node_id]:.2f} Mbps)")
     
+    def _ingest_metrics(self, node_id: str, metrics: dict):
+        with self.lock:
+            self.node_metrics[node_id].append(metrics)
+            self.node_compression_levels[node_id] = metrics['compression_level']
+
+    def _wire_metrics_callback(self, node_id: str, msg: UInt8MultiArray):
+        try:
+            m = wire.decode_metrics(wire.from_uint8_array(msg.data))
+            self._ingest_metrics(node_id, {
+                'compression_ratio': m.compression_ratio,
+                'latency_ms': m.latency_ms,
+                'compression_level': m.compression_level,
+                'quality_score': m.quality_score,
+                'bandwidth_estimate': m.bandwidth_estimate,
+                'bytes_in': m.bytes_in,
+                'bytes_out': m.bytes_out,
+                'timestamp': time.time(),
+            })
+        except Exception as exc:
+            self.get_logger().debug(f"wire metrics {node_id}: {exc}")
+
     def node_metrics_callback(self, node_id: str, msg: Float32MultiArray):
-        """Receive metrics from a node"""
+        """Legacy Float32 metrics."""
         if len(msg.data) >= 5:
-            with self.lock:
-                metrics = {
-                    'compression_ratio': float(msg.data[0]),
-                    'latency_ms': float(msg.data[1]),
-                    'compression_level': float(msg.data[2]),
-                    'quality_score': float(msg.data[3]),
-                    'bandwidth_estimate': float(msg.data[4]),
-                    'timestamp': time.time()
-                }
-                
-                self.node_metrics[node_id].append(metrics)
-                
-                # Update compression level
-                self.node_compression_levels[node_id] = metrics['compression_level']
+            self._ingest_metrics(node_id, {
+                'compression_ratio': float(msg.data[0]),
+                'latency_ms': float(msg.data[1]),
+                'compression_level': float(msg.data[2]),
+                'quality_score': float(msg.data[3]),
+                'bandwidth_estimate': float(msg.data[4]),
+                'timestamp': time.time(),
+            })
     
     def compressed_data_callback(self, node_id: str, msg: UInt8MultiArray):
         """Receive compressed data from a node"""
@@ -232,16 +265,28 @@ class DistributedCoordinator(Node):
         # Get allocated bandwidth
         allocated = self.allocated_bandwidth.get(node_id, self.total_bandwidth / len(self.registered_nodes))
         
-        # Create coordination message
+        payload = wire.CoordinationPayload(
+            target_compression=target_compression,
+            allocated_mbps=allocated,
+            fleet_avg_compression=avg_compression,
+            fleet_avg_latency_ms=avg_latency,
+            fleet_avg_quality=avg_quality,
+        )
+        self._coord_seq += 1
+        packed = wire.encode_coordination(node_id, payload, seq=self._coord_seq)
+        wmsg = UInt8MultiArray()
+        wmsg.data = wire.to_uint8_array_bytes(packed)
+        if node_id in self.coordination_wire_publishers:
+            self.coordination_wire_publishers[node_id].publish(wmsg)
+
         msg = Float32MultiArray()
         msg.data = [
-            target_compression,  # Target compression level
-            allocated,            # Allocated bandwidth (Mbps)
-            avg_compression,      # Global average compression
-            avg_latency,         # Global average latency
-            avg_quality          # Global average quality
+            target_compression,
+            allocated,
+            avg_compression,
+            avg_latency,
+            avg_quality,
         ]
-        
         self.coordination_publishers[node_id].publish(msg)
     
     def monitor_performance(self):
@@ -283,12 +328,8 @@ def main(args=None):
     # Auto-discover and register nodes dynamically
     # Nodes will be registered as they publish metrics
     # Optionally, register nodes from environment variable
-    import os
-    node_ids_env = os.getenv('NODE_IDS', '')
-    if node_ids_env:
-        node_ids = [nid.strip() for nid in node_ids_env.split(',') if nid.strip()]
-        for node_id in node_ids:
-            coordinator.register_node(node_id)
+    for node_id in fleet_node_ids():
+        coordinator.register_node(node_id)
     # Otherwise, nodes will be auto-discovered via metrics topics
     
     try:

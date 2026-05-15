@@ -15,11 +15,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from setuptools import find_packages, setup
+from pathlib import Path
 import os
 import sys
 
-
 package_name = 'lydlr_ai'
+repo_launch = Path(__file__).resolve().parents[3] / 'launch'
+launch_install = []
+if repo_launch.exists():
+    for lf in repo_launch.glob('*.py'):
+        launch_install.append((f'share/{package_name}/launch', [str(lf)]))
 
 setup(
     name=package_name,
@@ -29,6 +34,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        *launch_install,
     ],
     install_requires=[
         'setuptools',
@@ -62,6 +68,9 @@ setup(
             'distributed_coordinator = lydlr_ai.model.distributed_coordinator:main',
             'model_deployment_manager = lydlr_ai.model.model_deployment_manager:main',
             'train_synthetic_models = lydlr_ai.model.train_synthetic_models:main',
+            'transport_relay = lydlr_ai.transport_relay_node:main',
+            'communication_hub = lydlr_ai.communication_hub_node:main',
+            'qos_auto_tuner = lydlr_ai.model.qos_auto_tuner:main',
         ],
     },
 )

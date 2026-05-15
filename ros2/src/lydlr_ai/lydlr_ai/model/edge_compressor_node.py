@@ -63,6 +63,10 @@ except ImportError:
     psutil = None
 
 from lydlr_ai.model.compressor import EnhancedMultimodalCompressor
+from lydlr_ai.utils.metrics_reporter import report_metrics
+from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
+from lydlr_ai.communication.topics import LydlrTopics
+from lydlr_ai.communication import wire
 try:
     from lydlr_ai.model.quality_predictor import QualityPredictor
 except ImportError:
@@ -124,10 +128,11 @@ class ModelRegistry:
     def list_versions(self) -> list:
         """List all available model versions"""
         versions = []
-        for f in self.model_dir.glob("compressor_v*.pth"):
-            version = f.stem.split("_v")[1]
-            versions.append(version)
-        return sorted(versions, reverse=True)
+        for pattern in ("lydlr_compressor_v*.pth", "compressor_v*.pth"):
+            for f in self.model_dir.glob(pattern):
+                if "_v" in f.stem:
+                    versions.append(f.stem.split("_v", 1)[1])
+        return sorted(set(versions), reverse=True)
 
 
 class ScriptExecutor:
@@ -302,45 +307,29 @@ class EdgeCompressorNode(Node):
         # Data buffers
         self.sensor_buffer = queue.Queue(maxsize=10)
         self.motor_buffer = queue.Queue(maxsize=10)
-        
-        # Subscribers - Sensor inputs
-        self.create_subscription(Image, '/camera/image_raw', 
-                                self.image_callback, 10)
-        self.create_subscription(Float32MultiArray, '/lidar/data',
-                                self.lidar_callback, 10)
-        self.create_subscription(Float32MultiArray, '/imu/data',
-                                self.imu_callback, 10)
-        self.create_subscription(Float32MultiArray, '/audio/data',
-                                self.audio_callback, 10)
-        
-        # Subscribers - Motor/Actuator inputs
-        self.create_subscription(Twist, '/cmd_vel',
-                                self.motor_callback, 10)
-        
-        # Subscribers - Model deployment
-        self.create_subscription(String, '/model/deploy',
-                                self.model_deploy_callback, 10)
-        self.create_subscription(String, '/script/load',
-                                self.script_load_callback, 10)
-        
-        # Publishers - Compressed data
-        self.compressed_pub = self.create_publisher(
-            UInt8MultiArray, f'/{node_id}/compressed', 10
-        )
-        self.metrics_pub = self.create_publisher(
-            Float32MultiArray, f'/{node_id}/metrics', 10
-        )
-        
-        # Publishers - Decompressed (for other nodes)
+        self._transport_seq = 0
+        self._allocated_mbps = float(os.getenv("UPLINK_MBPS", "0"))
+
+        # Lydlr transport layer (LYDT wire + legacy topics)
+        self.transport = EdgeTransportLayer(self, node_id)
+        self.transport.subscribe_deploy(self.model_deploy_callback)
+        self.transport.subscribe_script(self.script_load_callback)
+        self.transport.subscribe_coordination(self._coordination_callback)
+
+        sqos = sensor_qos()
+        self.create_subscription(Image, LydlrTopics.CAMERA, self.image_callback, sqos)
+        self.create_subscription(Float32MultiArray, LydlrTopics.LIDAR, self.lidar_callback, sqos)
+        self.create_subscription(Float32MultiArray, LydlrTopics.IMU, self.imu_callback, sqos)
+        self.create_subscription(Float32MultiArray, LydlrTopics.AUDIO, self.audio_callback, sqos)
+        self.create_subscription(Twist, LydlrTopics.CMD_VEL, self.motor_callback, sqos)
+
         self.decompressed_pub = self.create_publisher(
             Float32MultiArray, f'/{node_id}/decompressed', 10
         )
-        
-        # Timer for real-time compression
-        self.compression_timer = self.create_timer(0.1, self.compress_loop)  # 10 Hz
-        
-        # Timer for bandwidth monitoring
+
+        self.compression_timer = self.create_timer(0.1, self.compress_loop)
         self.bandwidth_timer = self.create_timer(1.0, self.update_bandwidth)
+        self.heartbeat_timer = self.create_timer(2.0, self._publish_heartbeat)
         
         # Load latest model
         versions = self.model_registry.list_versions()
@@ -348,8 +337,19 @@ class EdgeCompressorNode(Node):
             self.model_registry.load_model(versions[0])
             self.multimodal_compressor = self.model_registry.get_model()
         
-        self.get_logger().info(f"🚀 Edge Compressor Node {node_id} initialized")
-        self.get_logger().info(f"   Available models: {versions}")
+        self.get_logger().info(f"🚀 Edge Compressor {node_id} [{self.transport.vertical}]")
+        self.get_logger().info(f"   Transport: {LydlrTopics.compressed_transport(node_id)}")
+        self.get_logger().info(f"   Models: {versions}")
+    
+    def _coordination_callback(self, payload: wire.CoordinationPayload):
+        """Apply fleet coordinator bandwidth / compression targets."""
+        self.bandwidth_estimate = max(0.1, min(1.0, payload.target_compression))
+        if payload.allocated_mbps > 0:
+            self._allocated_mbps = payload.allocated_mbps
+
+    def _publish_heartbeat(self):
+        version = self.model_registry.model_version or ""
+        self.transport.publish_heartbeat(version)
     
     def image_callback(self, msg):
         """Process camera image"""
@@ -534,40 +534,51 @@ class EdgeCompressorNode(Node):
                         sensor_feat, motor_data, self.bandwidth_estimate, None
                     )
                 
-                # Serialize and compress
-                compressed_bytes = pickle.dumps(compressed_sm.cpu().numpy())
-                compressed_bytes = zlib.compress(compressed_bytes)
-                
-                # Publish compressed data
-                msg = UInt8MultiArray()
-                msg.data = list(compressed_bytes)
-                self.compressed_pub.publish(msg)
-                
-                # Calculate metrics
+                raw_blob = pickle.dumps(compressed_sm.cpu().numpy())
                 input_size = sum(item['data'].numel() * 4 for item in sensor_data)
                 if motor_data is not None:
                     input_size += motor_data.numel() * 4
-                output_size = len(compressed_bytes)
-                
+                output_size = len(zlib.compress(raw_blob))
+
                 compression_ratio = input_size / max(output_size, 1)
                 latency_ms = (time.time() - start_time) * 1000
-                
-                # Update stats
+                model_ver = self.model_registry.model_version or ""
+
                 self.compression_stats['total_in'] += input_size
                 self.compression_stats['total_out'] += output_size
                 self.compression_stats['compression_ratio'] = compression_ratio
                 self.compression_stats['latency_ms'] = latency_ms
-                
-                # Publish metrics
-                metrics_msg = Float32MultiArray()
-                metrics_msg.data = [
+
+                self.transport.publish_compressed(
+                    raw_blob,
+                    model_ver,
+                    input_size,
                     compression_ratio,
-                    latency_ms,
-                    float(comp_level.item()),
-                    float(predicted_quality.item()),
-                    self.bandwidth_estimate
-                ]
-                self.metrics_pub.publish(metrics_msg)
+                )
+
+                metrics = wire.MetricsPayload(
+                    node_id=self.node_id,
+                    vertical=self.transport.vertical,
+                    model_version=model_ver,
+                    compression_ratio=compression_ratio,
+                    latency_ms=latency_ms,
+                    compression_level=float(comp_level.item()),
+                    quality_score=float(predicted_quality.item()),
+                    bandwidth_estimate=self.bandwidth_estimate,
+                    bytes_in=input_size,
+                    bytes_out=output_size,
+                )
+                self.transport.publish_metrics(metrics)
+
+                report_metrics(
+                    node_id=self.node_id,
+                    compression_ratio=compression_ratio,
+                    latency_ms=latency_ms,
+                    quality_score=float(predicted_quality.item()),
+                    bandwidth_estimate=self.bandwidth_estimate,
+                    compression_level=float(comp_level.item()),
+                    vertical=self.transport.vertical,
+                )
                 
                 self.get_logger().info(
                     f"📊 Compression: {compression_ratio:.2f}x | "

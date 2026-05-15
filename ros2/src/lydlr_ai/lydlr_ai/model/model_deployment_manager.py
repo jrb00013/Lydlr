@@ -17,16 +17,20 @@ Model Deployment Manager
 - Dynamic node discovery
 """
 
+import re
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Float32MultiArray
-import json
+from std_msgs.msg import String, Float32MultiArray, UInt8MultiArray
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 from collections import deque
 import time
 import threading
+
+from lydlr_ai.communication.topics import LydlrTopics, fleet_node_ids
+from lydlr_ai.communication.qos import qos_command, qos_metrics
+from lydlr_ai.communication import wire
 
 
 class ModelDeploymentManager(Node):
@@ -47,8 +51,10 @@ class ModelDeploymentManager(Node):
         # A/B testing
         self.ab_test_configs: Dict[str, Dict] = {}  # node_id -> {version_a, version_b, split}
         
-        # Publishers for each node (created dynamically)
         self.deploy_publishers: Dict[str, rclpy.publisher.Publisher] = {}
+        self.fleet_deploy_pub = self.create_publisher(
+            String, LydlrTopics.FLEET_DEPLOY, qos_command()
+        )
         
         # Dynamic node discovery
         self.discovered_nodes: set = set()
@@ -89,19 +95,20 @@ class ModelDeploymentManager(Node):
                 topics = result.stdout.split('\n')
                 discovered = set()
                 for topic in topics:
-                    match = re.search(r'/node_(\d+)/', topic)
-                    if match:
-                        discovered.add(f"node_{match.group(1)}")
-                if discovered:
-                    common_nodes = sorted(list(discovered))
-                else:
-                    # Fallback to default if no nodes discovered yet
-                    common_nodes = ['node_0', 'node_1']
+                    m = re.search(r"/lydlr/([^/]+)/", topic)
+                    if m:
+                        discovered.add(m.group(1))
+                    m = re.search(r"/(node_\d+)/", topic)
+                    if m:
+                        discovered.add(m.group(1))
+                    m = re.search(r"/(iot_gateway[^/]*)/", topic)
+                    if m:
+                        discovered.add(m.group(1))
+                common_nodes = sorted(discovered) if discovered else fleet_node_ids()
             else:
-                common_nodes = ['node_0', 'node_1']  # Default fallback
+                common_nodes = fleet_node_ids()
         except Exception:
-            # Fallback to default nodes if discovery fails
-            common_nodes = ['node_0', 'node_1', 'node_2', 'node_3']
+            common_nodes = fleet_node_ids()
         
         for node_id in common_nodes:
             if node_id not in self.discovered_nodes:
@@ -109,13 +116,19 @@ class ModelDeploymentManager(Node):
                 try:
                     if node_id not in self.deploy_publishers:
                         self.deploy_publishers[node_id] = self.create_publisher(
-                            String, f'/{node_id}/model/deploy', 10
+                            String, LydlrTopics.deploy(node_id), qos_command()
                         )
-                    
-                    # Create metrics subscriber
                     self.create_subscription(
-                        Float32MultiArray, f'/{node_id}/metrics',
-                        lambda msg, nid=node_id: self.metrics_callback(nid, msg), 10
+                        UInt8MultiArray,
+                        LydlrTopics.metrics_transport(node_id),
+                        lambda msg, nid=node_id: self._wire_metrics_callback(nid, msg),
+                        qos_metrics(),
+                    )
+                    self.create_subscription(
+                        Float32MultiArray,
+                        LydlrTopics.legacy_metrics(node_id),
+                        lambda msg, nid=node_id: self.metrics_callback(nid, msg),
+                        qos_metrics(),
                     )
                     
                     self.discovered_nodes.add(node_id)
@@ -128,16 +141,16 @@ class ModelDeploymentManager(Node):
     
     def deploy_model(self, node_id: str, version: str, save_previous: bool = True) -> bool:
         """Deploy a model version to a specific node"""
-        model_path = self.model_dir / f"compressor_v{version}.pth"
-        
+        model_path = self.model_dir / f"lydlr_compressor_v{version}.pth"
         if not model_path.exists():
-            self.get_logger().error(f"Model v{version} not found at {model_path}")
+            model_path = self.model_dir / f"compressor_v{version}.pth"
+        if not model_path.exists():
+            self.get_logger().error(f"Model v{version} not found")
             return False
-        
-        # Create publisher if needed
+
         if node_id not in self.deploy_publishers:
             self.deploy_publishers[node_id] = self.create_publisher(
-                String, f'/{node_id}/model/deploy', 10
+                String, LydlrTopics.deploy(node_id), qos_command()
             )
         
         # Save previous model for rollback
@@ -175,23 +188,36 @@ class ModelDeploymentManager(Node):
         for node_id in node_ids:
             self.deploy_model(node_id, version)
     
+    def _store_metrics(self, node_id: str, metrics: dict):
+        with self.lock:
+            if node_id not in self.node_metrics:
+                self.node_metrics[node_id] = deque(maxlen=100)
+            self.node_metrics[node_id].append(metrics)
+
+    def _wire_metrics_callback(self, node_id: str, msg: UInt8MultiArray):
+        try:
+            m = wire.decode_metrics(wire.from_uint8_array(msg.data))
+            self._store_metrics(node_id, {
+                'compression_ratio': m.compression_ratio,
+                'latency_ms': m.latency_ms,
+                'compression_level': m.compression_level,
+                'quality_score': m.quality_score,
+                'bandwidth_estimate': m.bandwidth_estimate,
+                'timestamp': time.time(),
+            })
+        except Exception:
+            pass
+
     def metrics_callback(self, node_id: str, msg: Float32MultiArray):
-        """Receive metrics from nodes"""
         if len(msg.data) >= 5:
-            with self.lock:
-                if node_id not in self.node_metrics:
-                    self.node_metrics[node_id] = deque(maxlen=100)
-                
-                metrics = {
-                    'compression_ratio': float(msg.data[0]),
-                    'latency_ms': float(msg.data[1]),
-                    'compression_level': float(msg.data[2]),
-                    'quality_score': float(msg.data[3]),
-                    'bandwidth_estimate': float(msg.data[4]),
-                    'timestamp': time.time()
-                }
-                
-                self.node_metrics[node_id].append(metrics)
+            self._store_metrics(node_id, {
+                'compression_ratio': float(msg.data[0]),
+                'latency_ms': float(msg.data[1]),
+                'compression_level': float(msg.data[2]),
+                'quality_score': float(msg.data[3]),
+                'bandwidth_estimate': float(msg.data[4]),
+                'timestamp': time.time(),
+            })
     
     def check_deployments(self):
         """Periodically check and manage deployments"""
@@ -307,12 +333,20 @@ class ModelDeploymentManager(Node):
             return []
     
     def list_available_models(self) -> List[str]:
-        """List all available model versions"""
         versions = []
-        for f in self.model_dir.glob("compressor_v*.pth"):
-            version = f.stem.split("_v")[1]
-            versions.append(version)
-        return sorted(versions, reverse=True)
+        for pattern in ("lydlr_compressor_v*.pth", "compressor_v*.pth"):
+            for f in self.model_dir.glob(pattern):
+                if "_v" in f.stem:
+                    versions.append(f.stem.split("_v", 1)[1])
+        return sorted(set(versions), reverse=True)
+
+    def deploy_fleet(self, version: str, node_ids: List[str] = None):
+        targets = node_ids or list(self.discovered_nodes) or fleet_node_ids()
+        for nid in targets:
+            self.deploy_model(nid, version)
+        msg = String()
+        msg.data = f"all:{version}"
+        self.fleet_deploy_pub.publish(msg)
     
     def get_deployment_status(self) -> Dict:
         """Get current deployment status across all nodes"""
