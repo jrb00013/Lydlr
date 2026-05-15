@@ -38,6 +38,16 @@ async def init_connections():
         
         # Test Redis connection
         await redis_client.ping()
+
+        from backend.api.schema.indexes import ensure_indexes
+        from backend.api.services.model_registry_service import ModelRegistryService
+
+        await ensure_indexes(db)
+        try:
+            sync = await ModelRegistryService(db).sync_and_list(sync=True)
+            print(f"✅ Model registry synced: {sync['sync']}")
+        except Exception as sync_err:
+            print(f"⚠️ Model registry sync skipped: {sync_err}")
         
         print("✅ Connected to MongoDB and Redis")
     except Exception as e:

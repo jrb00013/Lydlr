@@ -9,6 +9,9 @@ from typing import List, Dict, Any, Optional
 class NodeStatusSerializer(serializers.Serializer):
     node_id = serializers.CharField()
     status = serializers.CharField(default="unknown")
+    vertical = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    display_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    uplink_budget_kbps = serializers.FloatField(required=False, allow_null=True)
     model_version = serializers.CharField(required=False, allow_null=True)
     compression_ratio = serializers.FloatField(default=0.0)
     latency_ms = serializers.FloatField(default=0.0)
@@ -25,6 +28,80 @@ class ModelInfoSerializer(serializers.Serializer):
     metadata = serializers.DictField(default=dict)
 
 
+class ModelArtifactSerializer(serializers.Serializer):
+    artifact_id = serializers.CharField()
+    version = serializers.CharField()
+    model_type = serializers.CharField()
+    architecture = serializers.CharField()
+    filename = serializers.CharField(required=False)
+    file_path = serializers.CharField(required=False, allow_blank=True)
+    size_mb = serializers.FloatField(required=False)
+    size_bytes = serializers.IntegerField(required=False)
+    checksum_sha256 = serializers.CharField(required=False, allow_blank=True)
+    vertical_targets = serializers.ListField(child=serializers.CharField(), required=False)
+    modalities = serializers.ListField(child=serializers.CharField(), required=False)
+    status = serializers.CharField(default="registered")
+    training = serializers.DictField(required=False)
+    performance = serializers.DictField(required=False)
+    parameters = serializers.IntegerField(required=False, allow_null=True)
+    metadata_raw = serializers.DictField(required=False)
+    created_at = serializers.DateTimeField(required=False)
+    updated_at = serializers.DateTimeField(required=False)
+
+
+class ModelRegistryTableRowSerializer(serializers.Serializer):
+    artifact_id = serializers.CharField()
+    version = serializers.CharField()
+    model_type = serializers.CharField()
+    architecture = serializers.CharField()
+    status = serializers.CharField()
+    size_mb = serializers.FloatField(required=False, allow_null=True)
+    vertical_targets = serializers.ListField(child=serializers.CharField())
+    modalities = serializers.ListField(child=serializers.CharField(), required=False)
+    compression_ratio = serializers.FloatField(required=False, allow_null=True)
+    quality_score = serializers.FloatField(required=False, allow_null=True)
+    inference_ms = serializers.FloatField(required=False, allow_null=True)
+    training_source = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    epochs = serializers.IntegerField(required=False, allow_null=True)
+    deployed_node_count = serializers.IntegerField(default=0)
+    deployed_nodes = serializers.ListField(child=serializers.CharField(), required=False)
+    filename = serializers.CharField(required=False, allow_blank=True)
+    updated_at = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class MetricsTableRowSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    vertical = serializers.CharField(required=False, allow_blank=True)
+    timestamp = serializers.DateTimeField()
+    compression_ratio = serializers.FloatField()
+    latency_ms = serializers.FloatField()
+    quality_score = serializers.FloatField()
+    compression_level = serializers.FloatField(required=False)
+    bandwidth_estimate = serializers.FloatField(required=False)
+    bytes_in = serializers.IntegerField(required=False, allow_null=True)
+    bytes_out = serializers.IntegerField(required=False, allow_null=True)
+
+
+class MetricsRollupRowSerializer(serializers.Serializer):
+    rollup_key = serializers.CharField()
+    node_id = serializers.CharField()
+    vertical = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    bucket_start = serializers.DateTimeField()
+    samples = serializers.IntegerField()
+    avg_compression = serializers.FloatField()
+    avg_latency_ms = serializers.FloatField()
+    avg_quality = serializers.FloatField()
+    min_compression = serializers.FloatField(required=False, allow_null=True)
+    max_compression = serializers.FloatField(required=False, allow_null=True)
+
+
+class PaginatedMetricsSerializer(serializers.Serializer):
+    rows = MetricsTableRowSerializer(many=True)
+    total = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    skip = serializers.IntegerField()
+
+
 class CompressionMetricsSerializer(serializers.Serializer):
     node_id = serializers.CharField()
     compression_ratio = serializers.FloatField()
@@ -32,6 +109,7 @@ class CompressionMetricsSerializer(serializers.Serializer):
     quality_score = serializers.FloatField()
     bandwidth_estimate = serializers.FloatField(default=1.0)
     compression_level = serializers.FloatField(default=0.8)
+    vertical = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     timestamp = serializers.DateTimeField(default=datetime.utcnow)
 
 
@@ -41,6 +119,13 @@ class SystemStatsSerializer(serializers.Serializer):
     avg_compression_ratio = serializers.FloatField()
     avg_latency_ms = serializers.FloatField()
     avg_quality_score = serializers.FloatField()
+    active_drones = serializers.IntegerField(required=False, default=0)
+    active_iot = serializers.IntegerField(required=False, default=0)
+    fleet_profile = serializers.CharField(required=False, allow_blank=True)
+    vertical = serializers.CharField(required=False, allow_blank=True)
+    estimated_uplink_saved_kbps = serializers.FloatField(required=False, default=0.0)
+    metrics_sample_count = serializers.IntegerField(required=False, default=0)
+    by_vertical = serializers.DictField(required=False, default=dict)
     timestamp = serializers.DateTimeField()
 
 
