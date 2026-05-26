@@ -70,6 +70,7 @@ setup(
             'train_synthetic_models = lydlr_ai.model.train_synthetic_models:main',
             'transport_relay = lydlr_ai.transport_relay_node:main',
             'communication_hub = lydlr_ai.communication_hub_node:main',
+            'sensor_ingest = lydlr_ai.ingest.sensor_ingest_node:main',
             'qos_auto_tuner = lydlr_ai.model.qos_auto_tuner:main',
         ],
     },
