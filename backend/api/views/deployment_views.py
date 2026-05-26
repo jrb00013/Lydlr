@@ -32,6 +32,10 @@ class DeploymentView(AsyncAPIView):
         
         model_version = serializer.validated_data['model_version']
         node_ids = serializer.validated_data['node_ids']
+        strategy = serializer.validated_data.get('strategy', 'fleet')
+
+        if strategy == 'canary' and len(node_ids) > 1:
+            node_ids = [node_ids[0]]
         
         # Validate that all nodes exist
         existing_nodes = await db.nodes.find(
@@ -112,6 +116,7 @@ class DeploymentView(AsyncAPIView):
         deployment = {
             "model_version": model_version,
             "node_ids": node_ids,
+            "strategy": strategy,
             "deployed_at": datetime.utcnow(),
             "status": "deploying"
         }
@@ -227,6 +232,7 @@ class DeploymentView(AsyncAPIView):
             "status": deployment_status,
             "successful_nodes": successful_nodes,
             "ros_deployed": ros_deployed,
+            "strategy": strategy,
             "message": f"Model {model_version} deployed to {len(successful_nodes)} node(s)"
         })
     

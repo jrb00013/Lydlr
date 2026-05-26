@@ -1,10 +1,13 @@
 """
 Metrics and statistics views — raw samples, rollups, fleet tables.
 """
+import csv
+import io
 import json
 import logging
 from datetime import datetime
 
+from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -151,3 +154,41 @@ class SystemStatsView(AsyncAPIView):
 
         serializer = SystemStatsSerializer(stats)
         return Response(serializer.data)
+
+
+class MetricsExportView(AsyncAPIView):
+    """Export metrics samples as JSON or CSV for Grafana / offline analysis."""
+
+    async def get(self, request):
+        db = await ensure_db_connection()
+        export_fmt = request.query_params.get("format", "json").lower()
+        node_id = request.query_params.get("node_id")
+        vertical = request.query_params.get("vertical")
+        limit = int(request.query_params.get("limit", 1000))
+
+        metrics = await MetricsService(db).metrics.list_samples(
+            node_id=node_id,
+            vertical=vertical,
+            limit=limit,
+        )
+        for m in metrics:
+            m.pop("_id", None)
+            if isinstance(m.get("timestamp"), datetime):
+                m["timestamp"] = m["timestamp"].isoformat()
+
+        if export_fmt == "csv":
+            buffer = io.StringIO()
+            fields = [
+                "timestamp", "node_id", "vertical", "compression_ratio",
+                "latency_ms", "quality_score", "compression_level",
+                "bandwidth_estimate", "bytes_in", "bytes_out",
+            ]
+            writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            for row in metrics:
+                writer.writerow(row)
+            response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+            response["Content-Disposition"] = 'attachment; filename="lydlr_metrics.csv"'
+            return response
+
+        return Response({"rows": metrics, "total": len(metrics)})
