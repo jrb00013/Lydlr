@@ -126,7 +126,11 @@ class ModelArtifactRepository:
 
     async def assign_to_node(self, node_id: str, version: str, artifact_id: str) -> None:
         from backend.api.schema.documents import build_node_assignment
+        existing = await self.assignments.find_one({"node_id": node_id})
+        previous = existing.get("model_version") if existing else None
         doc = build_node_assignment(node_id, version, artifact_id)
+        if previous and previous != version:
+            doc["previous_version"] = previous
         await self.assignments.update_one(
             {"node_id": node_id},
             {"$set": doc},

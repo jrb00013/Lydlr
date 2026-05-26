@@ -12,7 +12,7 @@ from backend.api.views import (
     ModelListView, ModelRegistryView, ModelRegistryTableView,
     ModelArtifactDetailView, ModelSyncView, ModelUploadView,
     MetricsView, SystemStatsView, MetricsRollupsView, MetricsFleetView,
-    DeploymentView
+    DeploymentView, ModelRollbackView
 )
 
 urlpatterns = [
@@ -32,6 +32,7 @@ urlpatterns = [
     path('models/registry/table/', ModelRegistryTableView.as_view(), name='models-registry-table'),
     path('models/registry/<str:artifact_id>/', ModelArtifactDetailView.as_view(), name='models-artifact-detail'),
     path('deploy/', DeploymentView.as_view(), name='deploy'),
+    path('deploy/rollback/', ModelRollbackView.as_view(), name='deploy-rollback'),
     path('deployments/', DeploymentView.as_view(), name='deployments'),
     path('metrics/', MetricsView.as_view(), name='metrics'),
     path('metrics/rollups/', MetricsRollupsView.as_view(), name='metrics-rollups'),

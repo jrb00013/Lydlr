@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext, useCallback } from 'react';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import SyncIcon from '@mui/icons-material/Sync';
 import UploadIcon from '@mui/icons-material/Upload';
+import UndoIcon from '@mui/icons-material/Undo';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import './ModelsView.css';
 import { NotificationContext } from '../App';
 import PageHeader from './ui/PageHeader';
@@ -17,6 +19,8 @@ function ModelsView() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [deploying, setDeploying] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const modelColumns = [
@@ -120,6 +124,47 @@ function ModelsView() {
     }
   };
 
+  const handleDeploySelected = async () => {
+    if (!selected?.version) return;
+    const nodeIds = selected.deployed_nodes?.length
+      ? selected.deployed_nodes
+      : (await lydlrApi.nodes()).map((n) => n.node_id);
+    if (!nodeIds.length) {
+      notification?.showWarning?.('No fleet nodes available');
+      return;
+    }
+    setDeploying(true);
+    try {
+      const result = await lydlrApi.deploy({
+        model_version: selected.version,
+        node_ids: nodeIds,
+      });
+      notification?.showSuccess?.(
+        `Deployed ${selected.version} to ${result.successful_nodes?.length || nodeIds.length} node(s)`
+      );
+      await loadTable();
+    } catch (e) {
+      notification?.showError?.(e.message || 'Deploy failed');
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleRollback = async () => {
+    const nodeIds = selected?.deployed_nodes || [];
+    setRollingBack(true);
+    try {
+      const result = await lydlrApi.rollback(nodeIds.length ? nodeIds : undefined);
+      const count = result.rolled_back?.length || 0;
+      notification?.showSuccess?.(`Rolled back ${count} node(s)`);
+      await loadTable();
+    } catch (e) {
+      notification?.showError?.(e.message || 'Rollback failed — need a previous deployment');
+    } finally {
+      setRollingBack(false);
+    }
+  };
+
   const handleUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -199,9 +244,27 @@ function ModelsView() {
               <p>{(selected.deployed_nodes || []).join(', ') || 'none'}</p>
             </div>
           </div>
-          <button type="button" className="btn btn-secondary" onClick={() => setSelected(null)}>
-            Close
-          </button>
+          <div className="model-detail-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleDeploySelected}
+              disabled={deploying}
+            >
+              <RocketLaunchIcon fontSize="small" /> {deploying ? 'Deploying…' : 'Deploy to fleet'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleRollback}
+              disabled={rollingBack || !(selected.deployed_nodes || []).length}
+            >
+              <UndoIcon fontSize="small" /> {rollingBack ? 'Rolling back…' : 'Rollback nodes'}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => setSelected(null)}>
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

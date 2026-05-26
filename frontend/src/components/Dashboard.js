@@ -59,7 +59,7 @@ function Dashboard({ connected }) {
   }, []);
 
   const fetchStats = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/stats`);
+    const res = await fetch(`${API_URL}/api/stats/`);
     if (res.ok) setStats(await res.json());
   }, []);
 

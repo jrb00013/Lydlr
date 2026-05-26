@@ -134,6 +134,10 @@ class DeploymentRequestSerializer(serializers.Serializer):
     node_ids = serializers.ListField(child=serializers.CharField())
 
 
+class ModelRollbackSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(child=serializers.CharField(), required=False)
+
+
 class NodeConfigSerializer(serializers.Serializer):
     compression_level = serializers.FloatField(default=0.8)
     target_quality = serializers.FloatField(default=0.8)

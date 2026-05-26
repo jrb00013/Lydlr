@@ -48,7 +48,13 @@ async def init_connections():
             print(f"✅ Model registry synced: {sync['sync']}")
         except Exception as sync_err:
             print(f"⚠️ Model registry sync skipped: {sync_err}")
-        
+
+        try:
+            from backend.api.services.fleet_bootstrap import bootstrap_fleet
+            await bootstrap_fleet(db)
+        except Exception as fleet_err:
+            print(f"⚠️ Fleet bootstrap skipped: {fleet_err}")
+
         print("✅ Connected to MongoDB and Redis")
     except Exception as e:
         print(f"❌ Connection error: {e}")

@@ -1,8 +1,12 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import FlightIcon from '@mui/icons-material/Flight';
+import SensorsIcon from '@mui/icons-material/Sensors';
 import './DeploymentView.css';
 import { NotificationContext } from '../App';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import PageHeader from './ui/PageHeader';
+import LoadingSpinner from './ui/LoadingSpinner';
+import lydlrApi from '../api/lydlrApi';
 
 function DeploymentView() {
   const notification = useContext(NotificationContext);
@@ -12,160 +16,168 @@ function DeploymentView() {
   const [selectedNodes, setSelectedNodes] = useState([]);
   const [deployments, setDeployments] = useState([]);
   const [deploying, setDeploying] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchModels();
-    fetchNodes();
-    fetchDeployments();
+  const refresh = useCallback(async () => {
+    try {
+      const [modelData, nodeData, deployData] = await Promise.all([
+        lydlrApi.models(),
+        lydlrApi.nodes(),
+        lydlrApi.deployments(),
+      ]);
+      setModels(modelData);
+      setNodes(nodeData);
+      setDeployments(deployData);
+    } catch (error) {
+      console.error('Failed to load deployment data:', error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const fetchModels = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/models`);
-      const data = await response.json();
-      setModels(data);
-    } catch (error) {
-      console.error('Failed to fetch models:', error);
-    }
-  };
-
-  const fetchNodes = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/nodes`);
-      const data = await response.json();
-      setNodes(data);
-    } catch (error) {
-      console.error('Failed to fetch nodes:', error);
-    }
-  };
-
-  const fetchDeployments = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/deployments`);
-      const data = await response.json();
-      setDeployments(data);
-    } catch (error) {
-      console.error('Failed to fetch deployments:', error);
-    }
-  };
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   const handleDeploy = async () => {
     if (!selectedModel || selectedNodes.length === 0) {
-      notification.showWarning('Please select a model and at least one node');
+      notification.showWarning('Select a model and at least one node');
       return;
     }
 
     setDeploying(true);
     try {
-      const response = await fetch(`${API_URL}/api/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_version: selectedModel,
-          node_ids: selectedNodes
-        })
+      const result = await lydlrApi.deploy({
+        model_version: selectedModel,
+        node_ids: selectedNodes,
       });
-      if (response.ok) {
-        notification.showSuccess('Deployment initiated!');
-        fetchDeployments();
-        setSelectedModel('');
-        setSelectedNodes([]);
-      } else {
-        const error = await response.json();
-        notification.showError(`Deployment failed: ${error.detail || 'Unknown error'}`);
-      }
+      const rosCount = (result.ros_deployed || []).length;
+      notification.showSuccess(
+        `Deployed ${selectedModel} to ${result.successful_nodes?.length || selectedNodes.length} node(s)` +
+          (rosCount ? ` — ROS notified on ${rosCount}` : '')
+      );
+      await refresh();
+      setSelectedModel('');
+      setSelectedNodes([]);
     } catch (error) {
-      console.error('Failed to deploy:', error);
-      notification.showError('Deployment failed');
+      notification.showError(error.message || 'Deployment failed');
     } finally {
       setDeploying(false);
     }
   };
 
   const toggleNodeSelection = (nodeId) => {
-    setSelectedNodes(prev => 
-      prev.includes(nodeId)
-        ? prev.filter(id => id !== nodeId)
-        : [...prev, nodeId]
+    setSelectedNodes((prev) =>
+      prev.includes(nodeId) ? prev.filter((id) => id !== nodeId) : [...prev, nodeId]
     );
   };
 
+  const droneNodes = nodes.filter((n) => n.vertical === 'drone');
+  const iotNodes = nodes.filter((n) => n.vertical === 'iot');
+
+  if (loading) {
+    return <LoadingSpinner message="Loading deploy console…" />;
+  }
+
   return (
-    <div className="deployment-view">
-      <h1 className="page-title">Model Deployment</h1>
+    <div className="deployment-view page-enter">
+      <PageHeader
+        title="Model deployment"
+        subtitle="Push compressor weights to UAV and IoT edge nodes — files copied + ROS deploy topic"
+        icon={RocketLaunchIcon}
+      />
 
       <div className="deployment-grid">
         <div className="card deploy-card">
-          <h2>Deploy New Model</h2>
-          
+          <h2>Deploy to fleet</h2>
+
           <div className="form-group">
-            <label>Select Model:</label>
-            <select 
+            <label htmlFor="deploy-model">Model version</label>
+            <select
+              id="deploy-model"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="form-select"
             >
-              <option value="">-- Choose Model --</option>
-              {models.map(model => (
+              <option value="">— Choose model —</option>
+              {models.map((model) => (
                 <option key={model.version} value={model.version}>
-                  {model.version} ({model.size_mb.toFixed(2)} MB)
+                  {model.version} ({model.size_mb?.toFixed(2)} MB)
                 </option>
               ))}
             </select>
           </div>
 
           <div className="form-group">
-            <label>Select Target Nodes:</label>
-            <div className="nodes-checklist">
-              {nodes.length === 0 ? (
-                <p className="no-nodes">No nodes available</p>
-              ) : (
-                nodes.map(node => (
-                  <label key={node.node_id} className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={selectedNodes.includes(node.node_id)}
-                      onChange={() => toggleNodeSelection(node.node_id)}
-                    />
-                    <span>{node.node_id}</span>
-                    <span className={`node-badge status-${node.status}`}>
-                      {node.status}
+            <label>Target nodes</label>
+            {nodes.length === 0 ? (
+              <p className="no-nodes">No fleet nodes — start stack with ./start-lydlr.sh -d --ros2</p>
+            ) : (
+              <>
+                {droneNodes.length > 0 && (
+                  <div className="nodes-checklist">
+                    <span className="nodes-checklist__label">
+                      <FlightIcon fontSize="small" /> UAV
                     </span>
-                  </label>
-                ))
-              )}
-            </div>
+                    {droneNodes.map((node) => (
+                      <NodeCheckbox
+                        key={node.node_id}
+                        node={node}
+                        checked={selectedNodes.includes(node.node_id)}
+                        onToggle={toggleNodeSelection}
+                      />
+                    ))}
+                  </div>
+                )}
+                {iotNodes.length > 0 && (
+                  <div className="nodes-checklist">
+                    <span className="nodes-checklist__label">
+                      <SensorsIcon fontSize="small" /> IoT
+                    </span>
+                    {iotNodes.map((node) => (
+                      <NodeCheckbox
+                        key={node.node_id}
+                        node={node}
+                        checked={selectedNodes.includes(node.node_id)}
+                        onToggle={toggleNodeSelection}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          <button 
+          <button
+            type="button"
             className="btn btn-primary deploy-btn"
             onClick={handleDeploy}
             disabled={deploying || !selectedModel || selectedNodes.length === 0}
           >
-            {deploying ? 'Deploying...' : 'Deploy Model'}
+            {deploying ? 'Deploying…' : 'Deploy model'}
           </button>
         </div>
 
         <div className="card history-card">
-          <h2>Deployment History</h2>
+          <h2>Deployment history</h2>
           <div className="deployments-list">
             {deployments.length === 0 ? (
               <p className="no-deployments">No deployments yet</p>
             ) : (
-              deployments.map((deployment, idx) => (
-                <div key={idx} className="deployment-item">
+              deployments.map((deployment) => (
+                <div key={deployment._id || deployment.deployment_id} className="deployment-item">
                   <div className="deployment-header">
-                    <span className="deployment-model">
-                      {deployment.model_version}
-                    </span>
+                    <span className="deployment-model">{deployment.model_version}</span>
                     <span className={`deployment-status status-${deployment.status}`}>
                       {deployment.status}
                     </span>
                   </div>
                   <div className="deployment-details">
-                    <span>Nodes: {deployment.node_ids.join(', ')}</span>
+                    <span>Nodes: {(deployment.node_ids || []).join(', ')}</span>
                     <span className="deployment-time">
-                      {new Date(deployment.deployed_at).toLocaleString()}
+                      {deployment.deployed_at
+                        ? new Date(deployment.deployed_at).toLocaleString()
+                        : '—'}
                     </span>
                   </div>
                 </div>
@@ -178,5 +190,14 @@ function DeploymentView() {
   );
 }
 
-export default DeploymentView;
+function NodeCheckbox({ node, checked, onToggle }) {
+  return (
+    <label className="checkbox-label">
+      <input type="checkbox" checked={checked} onChange={() => onToggle(node.node_id)} />
+      <span>{node.display_name || node.node_id}</span>
+      <span className={`node-badge status-${node.status}`}>{node.status}</span>
+    </label>
+  );
+}
 
+export default DeploymentView;

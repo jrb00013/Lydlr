@@ -12,7 +12,7 @@ from rest_framework import status
 from backend.api.views.base import AsyncAPIView, ensure_db_connection
 from backend.api.node_manager import (
     start_node, stop_node, restart_node, get_node_status,
-    get_node_logs, deploy_model_to_node
+    get_node_logs, deploy_model_to_node, is_ros2_fleet_node_running
 )
 from backend.api.ros2_metrics_collector import (
     start_metrics_collector, stop_metrics_collector
@@ -267,9 +267,10 @@ class NodeDeployView(AsyncAPIView):
         # Check if node is running
         loop = asyncio.get_event_loop()
         process_status = await loop.run_in_executor(None, get_node_status, node_id)
-        if process_status.get("status") != "running":
+        fleet_live = await loop.run_in_executor(None, is_ros2_fleet_node_running, node_id)
+        if process_status.get("status") != "running" and not fleet_live:
             return Response(
-                {"detail": f"Node {node_id} is not running. Please start the node first."},
+                {"detail": f"Node {node_id} is not running. Start ROS2 or the node first."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

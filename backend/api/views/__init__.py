@@ -37,7 +37,7 @@ from backend.api.views.metrics_views import (
     MetricsRollupsView,
     MetricsFleetView,
 )
-from backend.api.views.deployment_views import DeploymentView
+from backend.api.views.deployment_views import DeploymentView, ModelRollbackView
 
 __all__ = [
     # Base
@@ -76,5 +76,6 @@ __all__ = [
     'MetricsFleetView',
     # Deployment
     'DeploymentView',
+    'ModelRollbackView',
 ]
 

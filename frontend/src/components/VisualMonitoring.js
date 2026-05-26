@@ -18,7 +18,7 @@ function VisualMonitoring() {
 
   const fetchNodes = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/api/nodes`);
+      const response = await fetch(`${API_URL}/api/nodes/`);
       const data = await response.json();
       setNodes(data);
       if (data.length > 0 && !selectedNode) {
@@ -49,7 +49,7 @@ function VisualMonitoring() {
 
   const fetchMetrics = useCallback(async (nodeId) => {
     try {
-      const response = await fetch(`${API_URL}/api/metrics?node_id=${nodeId}&limit=50`);
+      const response = await fetch(`${API_URL}/api/metrics/?node_id=${nodeId}&limit=50`);
       const data = await response.json();
       
       if (data && data.length > 0) {

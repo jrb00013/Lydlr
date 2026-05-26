@@ -677,7 +677,14 @@ def get_node_status(node_id: str) -> Dict[str, Any]:
                 }
         except Exception as e:
             logger.debug(f"Failed to check node {node_id} status in Docker: {e}")
-    
+
+    if is_ros2_fleet_node_running(node_id):
+        return {
+            "status": "running",
+            "source": "ros2_fleet",
+            "model_version": info.get("model_version"),
+        }
+
     # Check local processes
     if node_id in running_processes:
         process = running_processes[node_id]
@@ -754,65 +761,97 @@ def get_node_logs(node_id: str, lines: int = 100) -> list:
         return []
 
 
-def deploy_model_to_node(node_id: str, model_version: str) -> bool:
-    """Deploy a model to a running node via ROS2 topic"""
+def is_ros2_fleet_node_running(node_id: str) -> bool:
+    """True if edge_compressor topics exist for node_id in the ROS2 container."""
+    if not is_docker_available():
+        return False
+    ros2_container = get_ros2_container()
+    if not ros2_container:
+        return False
+    ros2_distro = get_ros2_distro() or "humble"
     try:
-        # Detect ROS2 distribution
+        result = subprocess.run(
+            [
+                "docker", "exec", ros2_container, "bash", "-c",
+                (
+                    f"source /opt/ros/{ros2_distro}/setup.bash && "
+                    f"source /app/install/setup.bash 2>/dev/null; "
+                    f"ros2 topic list 2>/dev/null | grep -E '/lydlr/{node_id}/|/{node_id}/'"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception as exc:
+        logger.debug("ROS2 fleet check for %s: %s", node_id, exc)
+        return False
+
+
+def deploy_model_to_node(node_id: str, model_version: str) -> bool:
+    """Deploy a model to a running node via ROS2 deploy topics."""
+    try:
         ros2_distro = get_ros2_distro()
         if not ros2_distro:
             logger.warning("ROS2 not found, cannot deploy model")
             return False
-        
-        # Check if we should use Docker
+
+        deploy_topics = [
+            f"/lydlr/{node_id}/command/deploy",
+            f"/{node_id}/model/deploy",
+        ]
+        version_escaped = model_version.replace("'", "\\'")
+
         use_docker = is_docker_available()
         ros2_container = get_ros2_container()
-        
-        if use_docker:
-            # Build command for Docker container
-            cmd_str = (
-                f'source /opt/ros/{ros2_distro}/setup.bash && '
-                f'source /app/install/setup.bash && '
-                f'ros2 topic pub --once /{node_id}/model/deploy std_msgs/String "data: \'{model_version}\'"'
+
+        for topic in deploy_topics:
+            pub_cmd = (
+                f"ros2 topic pub --once {topic} std_msgs/String "
+                f"\"data: '{version_escaped}'\""
             )
-            
-            result = subprocess.run(
-                ['docker', 'exec', ros2_container, '/bin/bash', '-c', cmd_str],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-        else:
-            # Local execution
-            workspace_dir = find_ros2_workspace()
-            if not workspace_dir:
-                logger.warning("ROS2 workspace not found, cannot deploy model")
-                return False
-            
-            install_setup = workspace_dir / 'install' / 'setup.bash'
-            ros2_setup = f'/opt/ros/{ros2_distro}/setup.bash'
-            
-            cmd_str = (
-                f'source {ros2_setup} && '
-                f'source {install_setup} && '
-                f'ros2 topic pub --once /{node_id}/model/deploy std_msgs/String "data: \'{model_version}\'"'
-            )
-            
-            result = subprocess.run(
-                ['/bin/bash', '-c', cmd_str],
-                cwd=str(workspace_dir),
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env=os.environ.copy()
-            )
-        
-        if result.returncode == 0:
-            logger.info(f"Deployed model {model_version} to {node_id}")
-            return True
-        else:
-            logger.error(f"Failed to deploy model: {result.stderr}")
-            return False
-    
+            if use_docker and ros2_container:
+                cmd_str = (
+                    f"source /opt/ros/{ros2_distro}/setup.bash && "
+                    f"source /app/install/setup.bash 2>/dev/null; "
+                    f"{pub_cmd}"
+                )
+                result = subprocess.run(
+                    ["docker", "exec", ros2_container, "bash", "-c", cmd_str],
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                )
+            else:
+                workspace_dir = find_ros2_workspace()
+                if not workspace_dir:
+                    logger.warning("ROS2 workspace not found, cannot deploy model")
+                    return False
+                install_setup = workspace_dir / "install" / "setup.bash"
+                ros2_setup = f"/opt/ros/{ros2_distro}/setup.bash"
+                cmd_str = (
+                    f"source {ros2_setup} && "
+                    f"source {install_setup} && "
+                    f"{pub_cmd}"
+                )
+                result = subprocess.run(
+                    ["/bin/bash", "-c", cmd_str],
+                    cwd=str(workspace_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                    env=os.environ.copy(),
+                )
+
+            if result.returncode == 0:
+                logger.info("Deployed model %s to %s via %s", model_version, node_id, topic)
+                return True
+            logger.debug("Deploy via %s failed: %s", topic, result.stderr)
+
+        logger.error("Failed to deploy model %s to %s on all topics", model_version, node_id)
+        return False
+
     except Exception as e:
         logger.error(f"Error deploying model to {node_id}: {e}")
         return False

@@ -28,8 +28,15 @@ export const lydlrApi = {
   modelsSync: () => request('/api/models/sync/', { method: 'POST' }),
   modelsRegistry: (sync = true) =>
     request(`/api/models/registry/?sync=${sync}`),
+  models: () => request('/api/models/'),
   deploy: (body) =>
     request('/api/deploy/', { method: 'POST', body: JSON.stringify(body) }),
+  deployments: () => request('/api/deployments/'),
+  rollback: (nodeIds) =>
+    request('/api/deploy/rollback/', {
+      method: 'POST',
+      body: JSON.stringify(nodeIds?.length ? { node_ids: nodeIds } : {}),
+    }),
 };
 
 export default lydlrApi;
