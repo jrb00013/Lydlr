@@ -2,6 +2,13 @@
   animation: fadeIn 0.5s ease-in;
 }
 
+.nodes-view .modal-hint {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
 .loading {
   text-align: center;
   color: white;

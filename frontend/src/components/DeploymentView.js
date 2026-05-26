@@ -15,6 +15,7 @@ function DeploymentView() {
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedNodes, setSelectedNodes] = useState([]);
   const [deployments, setDeployments] = useState([]);
+  const [deployStrategy, setDeployStrategy] = useState('fleet');
   const [deploying, setDeploying] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +51,7 @@ function DeploymentView() {
       const result = await lydlrApi.deploy({
         model_version: selectedModel,
         node_ids: selectedNodes,
+        strategy: deployStrategy,
       });
       const rosCount = (result.ros_deployed || []).length;
       notification.showSuccess(
@@ -146,6 +148,19 @@ function DeploymentView() {
                 )}
               </>
             )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="deploy-strategy">Deploy strategy</label>
+            <select
+              id="deploy-strategy"
+              value={deployStrategy}
+              onChange={(e) => setDeployStrategy(e.target.value)}
+              className="form-select"
+            >
+              <option value="fleet">Fleet — all selected nodes</option>
+              <option value="canary">Canary — first node only</option>
+            </select>
           </div>
 
           <button

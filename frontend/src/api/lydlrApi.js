@@ -37,6 +37,17 @@ export const lydlrApi = {
       method: 'POST',
       body: JSON.stringify(nodeIds?.length ? { node_ids: nodeIds } : {}),
     }),
+  fleetLinkPolicy: () => request('/api/fleet/link-policy/'),
+  nodeLinkSpec: (nodeId) => request(`/api/nodes/${nodeId}/link-spec/`),
+  updateNodeLinkSpec: (nodeId, body) =>
+    request(`/api/nodes/${nodeId}/link-spec/`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  metricsExport: (params = {}) => {
+    const q = new URLSearchParams(params);
+    return request(`/api/metrics/export/?${q}`);
+  },
 };
 
 export default lydlrApi;

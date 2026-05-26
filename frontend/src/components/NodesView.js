@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import './NodesView.css';
 import { NotificationContext, ConfirmContext } from '../App';
 import { useSmartPolling } from '../hooks/useSmartPolling';
+import lydlrApi from '../api/lydlrApi';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -25,6 +26,14 @@ function NodesView() {
     auto_scale: false,
     min_nodes: 1,
     max_nodes: 10
+  });
+  const [showLinkSpec, setShowLinkSpec] = useState(false);
+  const [linkSpecNodeId, setLinkSpecNodeId] = useState(null);
+  const [linkSpecForm, setLinkSpecForm] = useState({
+    uplink_budget_kbps: 512,
+    min_quality: 0.75,
+    vision_fps_cap: 15,
+    max_latency_ms: 50,
   });
 
   const fetchNodes = async () => {
@@ -287,6 +296,40 @@ function NodesView() {
     setShowDeployModal(true);
   };
 
+  const openLinkSpecModal = async (nodeId) => {
+    setLinkSpecNodeId(nodeId);
+    try {
+      const spec = await lydlrApi.nodeLinkSpec(nodeId);
+      setLinkSpecForm({
+        uplink_budget_kbps: spec.uplink_budget_kbps ?? 512,
+        min_quality: spec.min_quality ?? 0.75,
+        vision_fps_cap: spec.vision_fps_cap ?? 15,
+        max_latency_ms: spec.max_latency_ms ?? 50,
+      });
+    } catch (e) {
+      const n = nodes.find((x) => x.node_id === nodeId);
+      setLinkSpecForm({
+        uplink_budget_kbps: n?.uplink_budget_kbps ?? (n?.vertical === 'iot' ? 64 : 512),
+        min_quality: 0.65,
+        vision_fps_cap: n?.vertical === 'iot' ? 2 : 15,
+        max_latency_ms: 50,
+      });
+    }
+    setShowLinkSpec(true);
+  };
+
+  const saveLinkSpec = async () => {
+    if (!linkSpecNodeId) return;
+    try {
+      await lydlrApi.updateNodeLinkSpec(linkSpecNodeId, linkSpecForm);
+      notification.showSuccess(`Link spec saved for ${linkSpecNodeId}`);
+      setShowLinkSpec(false);
+      fetchNodes();
+    } catch (e) {
+      notification.showError(e.message || 'Failed to save link spec');
+    }
+  };
+
   if (loading) {
     return <div className="loading">Loading nodes...</div>;
   }
@@ -393,6 +436,81 @@ function NodesView() {
                   {nodeLogs.join('')}
                 </pre>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link budget / compression spec (camera → edge → uplink) */}
+      {showLinkSpec && (
+        <div className="modal-overlay" onClick={() => setShowLinkSpec(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Link spec: {linkSpecNodeId}</h2>
+            <p className="modal-hint">
+              Tune real-time compression for this edge (e.g. camera → NVIDIA Orin). Coordinator
+              adjusts level to stay under uplink while preserving quality.
+            </p>
+            <div className="form-group">
+              <label>Uplink budget (kbps)</label>
+              <input
+                type="number"
+                min="8"
+                max="10000"
+                value={linkSpecForm.uplink_budget_kbps}
+                onChange={(e) => setLinkSpecForm({
+                  ...linkSpecForm,
+                  uplink_budget_kbps: parseFloat(e.target.value),
+                })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Min perceptual quality (0–1)</label>
+              <input
+                type="number"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={linkSpecForm.min_quality}
+                onChange={(e) => setLinkSpecForm({
+                  ...linkSpecForm,
+                  min_quality: parseFloat(e.target.value),
+                })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Vision FPS cap (IoT: use 2, UAV: 10–15)</label>
+              <input
+                type="number"
+                min="0.5"
+                max="60"
+                step="0.5"
+                value={linkSpecForm.vision_fps_cap}
+                onChange={(e) => setLinkSpecForm({
+                  ...linkSpecForm,
+                  vision_fps_cap: parseFloat(e.target.value),
+                })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Max latency target (ms)</label>
+              <input
+                type="number"
+                min="1"
+                max="500"
+                value={linkSpecForm.max_latency_ms}
+                onChange={(e) => setLinkSpecForm({
+                  ...linkSpecForm,
+                  max_latency_ms: parseFloat(e.target.value),
+                })}
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-primary" onClick={saveLinkSpec}>
+                Save &amp; apply
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowLinkSpec(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
@@ -513,10 +631,34 @@ function NodesView() {
                   <span className="metric-label">Quality:</span>
                   <span className="metric-value">{((node.quality_score || 0) * 100).toFixed(1)}%</span>
                 </div>
+                {node.uplink_budget_kbps != null && (
+                  <div className="metric">
+                    <span className="metric-label">Uplink budget:</span>
+                    <span className="metric-value">{node.uplink_budget_kbps} kbps</span>
+                  </div>
+                )}
+                {node.estimated_throughput_kbps != null && (
+                  <div className="metric">
+                    <span className="metric-label">Est. throughput:</span>
+                    <span className="metric-value">
+                      {node.estimated_throughput_kbps} kbps
+                      {node.budget_utilization != null && (
+                        <small> ({(node.budget_utilization * 100).toFixed(0)}% of budget)</small>
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="node-actions">
                 <div className="action-row">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => openLinkSpecModal(node.node_id)}
+                  >
+                    Link spec
+                  </button>
                   {node.status === 'running' ? (
                     <button 
                       className="btn btn-danger"
