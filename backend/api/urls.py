@@ -5,15 +5,17 @@ from django.urls import path
 from backend.api.views import (
     root, health_check,
     NodeListView, NodeDetailView, NodeControlView, NodeDeployView,
-    NodeCreateView, NodeConfigurationView,
+    NodeCreateView, NodeConfigurationView, NodeLinkSpecView,
     DeviceListView, DeviceDetailView, DeviceCreateView,
     SensorListView, NodeDeviceConnectionView,
     WorkspaceView, DiagnosticView, OrchestrationStatusView,
     ModelListView, ModelRegistryView, ModelRegistryTableView,
     ModelArtifactDetailView, ModelSyncView, ModelUploadView,
     MetricsView, SystemStatsView, MetricsRollupsView, MetricsFleetView,
-    DeploymentView, ModelRollbackView
+    MetricsExportView,
+    DeploymentView, ModelRollbackView,
 )
+from backend.api.views.fleet_views import FleetLinkPolicyView
 
 urlpatterns = [
     path('', root, name='root'),
@@ -24,6 +26,7 @@ urlpatterns = [
     path('nodes/<str:node_id>/deploy/', NodeDeployView.as_view(), name='node-deploy'),
     path('nodes/<str:node_id>/delete/', NodeCreateView.as_view(), name='node-delete'),
     path('nodes/<str:node_id>/<str:action>/', NodeControlView.as_view(), name='node-control'),
+    path('nodes/<str:node_id>/link-spec/', NodeLinkSpecView.as_view(), name='node-link-spec'),
     path('nodes/<str:node_id>/', NodeDetailView.as_view(), name='node-detail'),
     path('models/', ModelListView.as_view(), name='models-list'),
     path('models/upload/', ModelUploadView.as_view(), name='models-upload'),
@@ -37,6 +40,8 @@ urlpatterns = [
     path('metrics/', MetricsView.as_view(), name='metrics'),
     path('metrics/rollups/', MetricsRollupsView.as_view(), name='metrics-rollups'),
     path('metrics/fleet/', MetricsFleetView.as_view(), name='metrics-fleet'),
+    path('metrics/export/', MetricsExportView.as_view(), name='metrics-export'),
+    path('fleet/link-policy/', FleetLinkPolicyView.as_view(), name='fleet-link-policy'),
     path('stats/', SystemStatsView.as_view(), name='stats'),
     path('devices/', DeviceListView.as_view(), name='devices-list'),
     path('devices/create/', DeviceCreateView.as_view(), name='device-create'),

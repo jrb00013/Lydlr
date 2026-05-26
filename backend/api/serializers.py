@@ -132,6 +132,11 @@ class SystemStatsSerializer(serializers.Serializer):
 class DeploymentRequestSerializer(serializers.Serializer):
     model_version = serializers.CharField()
     node_ids = serializers.ListField(child=serializers.CharField())
+    strategy = serializers.ChoiceField(
+        choices=["fleet", "canary"],
+        default="fleet",
+        required=False,
+    )
 
 
 class ModelRollbackSerializer(serializers.Serializer):
@@ -143,6 +148,18 @@ class NodeConfigSerializer(serializers.Serializer):
     target_quality = serializers.FloatField(default=0.8)
     bandwidth_limit = serializers.FloatField(required=False, allow_null=True)
     enable_metrics = serializers.BooleanField(default=True)
+
+
+class NodeLinkSpecSerializer(serializers.Serializer):
+    """Per-edge link budget — drives coordinator + compressor in real time."""
+    uplink_budget_kbps = serializers.FloatField(required=False, min_value=8, max_value=10000)
+    min_quality = serializers.FloatField(required=False, min_value=0.1, max_value=1.0)
+    vision_fps_cap = serializers.FloatField(required=False, min_value=0.5, max_value=60)
+    max_latency_ms = serializers.FloatField(required=False, min_value=1, max_value=500)
+    prioritize = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+    )
 
 
 class NodeCreateSerializer(serializers.Serializer):

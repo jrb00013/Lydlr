@@ -19,7 +19,8 @@ from backend.api.ros2_metrics_collector import (
 )
 from backend.api.serializers import (
     NodeStatusSerializer, NodeConfigSerializer,
-    NodeCreateSerializer, NodeConfigurationSerializer
+    NodeCreateSerializer, NodeConfigurationSerializer,
+    NodeLinkSpecSerializer,
 )
 from backend.api.redis_pubsub import publish_message
 
@@ -69,12 +70,22 @@ class NodeListView(AsyncAPIView):
                 node['quality_score'] = latest_metrics.get('quality_score', 0.0)
                 node['bandwidth_estimate'] = latest_metrics.get('bandwidth_estimate', 0.0)
                 node['compression_level'] = latest_metrics.get('compression_level', 0.0)
+                bytes_out = latest_metrics.get('bytes_out') or 0
+                if bytes_out:
+                    est_kbps = (bytes_out * 8) / 0.1 / 1000.0
+                    node['estimated_throughput_kbps'] = round(est_kbps, 1)
+                    budget = node.get('uplink_budget_kbps') or 256
+                    node['budget_utilization'] = round(min(est_kbps / budget, 2.0), 2)
         
         # Preserve fleet metadata (vertical, display_name) from MongoDB
         enriched = []
         for node in nodes:
             data = NodeStatusSerializer(node).data
-            for key in ('vertical', 'display_name', 'uplink_budget_kbps', 'sensors'):
+            for key in (
+                'vertical', 'display_name', 'uplink_budget_kbps', 'sensors',
+                'min_quality', 'vision_fps_cap', 'max_latency_ms', 'prioritize',
+                'estimated_throughput_kbps', 'budget_utilization',
+            ):
                 if key in node:
                     data[key] = node[key]
             enriched.append(data)
@@ -480,5 +491,41 @@ class NodeConfigurationView(AsyncAPIView):
         return Response({
             "status": "success",
             "configuration": config_data
+        })
+
+
+class NodeLinkSpecView(AsyncAPIView):
+    """Update per-node link budget (camera → edge → uplink compression targets)."""
+
+    async def get(self, request, node_id):
+        db = await ensure_db_connection()
+        node = await db.nodes.find_one({"node_id": node_id})
+        if not node:
+            return Response({"detail": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
+        from backend.api.services.link_policy_service import build_fleet_link_policy
+        fleet = await build_fleet_link_policy(db)
+        spec = fleet.get("nodes", {}).get(node_id, {})
+        return Response(spec)
+
+    async def patch(self, request, node_id):
+        db = await ensure_db_connection()
+        serializer = NodeLinkSpecSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        updates = {**serializer.validated_data, "last_update": datetime.utcnow()}
+        result = await db.nodes.update_one({"node_id": node_id}, {"$set": updates})
+        if result.matched_count == 0:
+            return Response({"detail": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        await publish_message("node_link_spec_update", {"node_id": node_id, **updates})
+        node = await db.nodes.find_one({"node_id": node_id})
+        from backend.api.services.link_policy_service import build_fleet_link_policy
+        fleet = await build_fleet_link_policy(db)
+        return Response({
+            "status": "success",
+            "node_id": node_id,
+            "link_spec": fleet.get("nodes", {}).get(node_id, {}),
+            "node": {k: node.get(k) for k in node if k != "_id"} if node else {},
         })
 
