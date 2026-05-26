@@ -67,6 +67,7 @@ from lydlr_ai.utils.metrics_reporter import report_metrics
 from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
 from lydlr_ai.communication.topics import LydlrTopics
 from lydlr_ai.communication import wire
+from lydlr_ai.communication.link_policy import NodeLinkPolicy, vision_frame_skip, kbps_to_mbps
 try:
     from lydlr_ai.model.quality_predictor import QualityPredictor
 except ImportError:
@@ -309,6 +310,18 @@ class EdgeCompressorNode(Node):
         self.motor_buffer = queue.Queue(maxsize=10)
         self._transport_seq = 0
         self._allocated_mbps = float(os.getenv("UPLINK_MBPS", "0"))
+        self._uplink_budget_kbps = float(os.getenv("UPLINK_BUDGET_KBPS", "0"))
+        self._image_tick = 0
+        vertical = os.getenv("NODE_VERTICAL", os.getenv("LYDLR_VERTICAL", "drone"))
+        self._link_policy = NodeLinkPolicy.from_dict(
+            node_id,
+            {
+                "vertical": vertical,
+                "uplink_budget_kbps": self._uplink_budget_kbps or None,
+            },
+        )
+        ingest_hz = float(os.getenv("LYDLR_INGEST_HZ", "10" if vertical == "drone" else "2"))
+        self._vision_skip = vision_frame_skip(self._link_policy, ingest_hz)
 
         # Lydlr transport layer (LYDT wire + legacy topics)
         self.transport = EdgeTransportLayer(self, node_id)
@@ -343,16 +356,20 @@ class EdgeCompressorNode(Node):
     
     def _coordination_callback(self, payload: wire.CoordinationPayload):
         """Apply fleet coordinator bandwidth / compression targets."""
-        self.bandwidth_estimate = max(0.1, min(1.0, payload.target_compression))
+        self.bandwidth_estimate = max(0.1, min(0.98, payload.target_compression))
         if payload.allocated_mbps > 0:
             self._allocated_mbps = payload.allocated_mbps
+            self._uplink_budget_kbps = payload.allocated_mbps * 1000.0
 
     def _publish_heartbeat(self):
         version = self.model_registry.model_version or ""
         self.transport.publish_heartbeat(version)
     
     def image_callback(self, msg):
-        """Process camera image"""
+        """Process camera image — may skip frames on IoT/LPWAN budgets."""
+        self._image_tick += 1
+        if self._vision_skip > 1 and (self._image_tick % self._vision_skip) != 0:
+            return
         try:
             # Convert ROS Image to tensor
             img_np = np.frombuffer(msg.data, dtype=np.uint8)
@@ -564,7 +581,7 @@ class EdgeCompressorNode(Node):
                     latency_ms=latency_ms,
                     compression_level=float(comp_level.item()),
                     quality_score=float(predicted_quality.item()),
-                    bandwidth_estimate=self.bandwidth_estimate,
+                    bandwidth_estimate=self._uplink_budget_kbps or self.bandwidth_estimate * 512,
                     bytes_in=input_size,
                     bytes_out=output_size,
                 )

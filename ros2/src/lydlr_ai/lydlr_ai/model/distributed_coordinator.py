@@ -16,6 +16,9 @@ Distributed Coordinator Node
 """
 
 import os
+import json
+import urllib.error
+import urllib.request
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String, UInt8MultiArray
@@ -27,6 +30,12 @@ import threading
 from lydlr_ai.communication.topics import LydlrTopics, fleet_node_ids
 from lydlr_ai.communication.qos import qos_metrics, qos_coordination, qos_compressed_egress
 from lydlr_ai.communication import wire
+from lydlr_ai.communication.link_policy import (
+    NodeLinkPolicy,
+    estimate_output_kbps,
+    kbps_to_mbps,
+    target_compression_level,
+)
 
 
 class DistributedCoordinator(Node):
@@ -41,8 +50,9 @@ class DistributedCoordinator(Node):
         self.node_compression_levels: Dict[str, float] = {}
         
         # Global bandwidth management
-        self.total_bandwidth = 100.0  # Mbps (configurable)
+        self.total_bandwidth = float(os.getenv("GROUND_UPLINK_MBPS", "2.0"))
         self.allocated_bandwidth: Dict[str, float] = {}
+        self.link_policies: Dict[str, NodeLinkPolicy] = {}
         
         # Performance tracking
         self.performance_history = deque(maxlen=100)
@@ -63,11 +73,43 @@ class DistributedCoordinator(Node):
         # Timer for coordination loop
         self.coordination_timer = self.create_timer(0.5, self.coordinate_nodes)  # 2 Hz
         self.monitoring_timer = self.create_timer(1.0, self.monitor_performance)
+        self.policy_timer = self.create_timer(10.0, self.refresh_link_policies)
         
         # Lock for thread safety
         self.lock = threading.Lock()
         
         self.get_logger().info("🌐 Distributed Coordinator initialized")
+
+    def refresh_link_policies(self):
+        """Pull uplink budgets from control plane API or env JSON."""
+        policies = self._fetch_link_policies()
+        if not policies:
+            return
+        with self.lock:
+            for node_id, pdata in policies.items():
+                self.link_policies[node_id] = NodeLinkPolicy.from_dict(node_id, pdata)
+                budget_mbps = kbps_to_mbps(self.link_policies[node_id].uplink_budget_kbps)
+                self.allocated_bandwidth[node_id] = min(budget_mbps, self.total_bandwidth)
+        self.get_logger().debug(f"Refreshed link policies for {len(policies)} nodes")
+
+    def _fetch_link_policies(self) -> Dict[str, dict]:
+        raw = os.getenv("FLEET_LINK_POLICY_JSON")
+        if raw:
+            try:
+                payload = json.loads(raw)
+                return payload.get("nodes", payload)
+            except json.JSONDecodeError:
+                pass
+
+        api = os.getenv("LYDLR_API_URL", "http://127.0.0.1:8000").rstrip("/")
+        url = f"{api}/api/fleet/link-policy/"
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                body = json.loads(resp.read().decode())
+                return body.get("nodes", {})
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            self.get_logger().debug(f"Link policy fetch skipped: {exc}")
+            return {}
     
     def register_node(self, node_id: str, node_type: str = "edge_compressor"):
         """Register a new edge node"""
@@ -116,7 +158,11 @@ class DistributedCoordinator(Node):
             
             # Allocate bandwidth
             num_nodes = len(self.registered_nodes)
-            self.allocated_bandwidth[node_id] = self.total_bandwidth / num_nodes
+            policy = self.link_policies.get(node_id)
+            if policy:
+                self.allocated_bandwidth[node_id] = kbps_to_mbps(policy.uplink_budget_kbps)
+            else:
+                self.allocated_bandwidth[node_id] = self.total_bandwidth / max(num_nodes, 1)
             
             self.get_logger().info(f"✅ Registered node: {node_id} (Bandwidth: {self.allocated_bandwidth[node_id]:.2f} Mbps)")
     
@@ -245,25 +291,36 @@ class DistributedCoordinator(Node):
     
     def send_coordination_signal(self, node_id: str, avg_compression: float, 
                                  avg_latency: float, avg_quality: float):
-        """Send coordination signal to a node"""
+        """Send coordination signal to a node based on link budget."""
         if node_id not in self.coordination_publishers:
             return
-        
-        # Calculate target compression level based on global performance
-        target_compression = 0.8
-        
-        # Adjust based on latency
-        if avg_latency > 50.0:  # High latency
-            target_compression = min(0.95, target_compression + 0.1)
-        elif avg_latency < 20.0:  # Low latency
-            target_compression = max(0.5, target_compression - 0.1)
-        
-        # Adjust based on quality
-        if avg_quality < 0.7:  # Low quality
-            target_compression = max(0.6, target_compression - 0.1)
-        
-        # Get allocated bandwidth
-        allocated = self.allocated_bandwidth.get(node_id, self.total_bandwidth / len(self.registered_nodes))
+
+        policy = self.link_policies.get(node_id) or NodeLinkPolicy.from_dict(
+            node_id,
+            {"vertical": "iot" if node_id.startswith("iot_") else "drone"},
+        )
+
+        latest = {}
+        with self.lock:
+            buf = self.node_metrics.get(node_id)
+            if buf:
+                latest = buf[-1]
+
+        est_kbps = estimate_output_kbps(int(latest.get("bytes_out", 0) or 0))
+        if est_kbps <= 0 and latest.get("bandwidth_estimate"):
+            est_kbps = float(latest["bandwidth_estimate"])
+
+        target_compression = target_compression_level(
+            policy,
+            estimated_output_kbps=est_kbps,
+            quality_score=float(latest.get("quality_score", avg_quality)),
+            latency_ms=float(latest.get("latency_ms", avg_latency)),
+        )
+
+        allocated = self.allocated_bandwidth.get(
+            node_id,
+            kbps_to_mbps(policy.uplink_budget_kbps),
+        )
         
         payload = wire.CoordinationPayload(
             target_compression=target_compression,
@@ -329,7 +386,12 @@ def main(args=None):
     # Nodes will be registered as they publish metrics
     # Optionally, register nodes from environment variable
     for node_id in fleet_node_ids():
+        vertical = "iot" if node_id.startswith("iot_") else "drone"
+        coordinator.link_policies[node_id] = NodeLinkPolicy.from_dict(
+            node_id, {"vertical": vertical}
+        )
         coordinator.register_node(node_id)
+    coordinator.refresh_link_policies()
     # Otherwise, nodes will be auto-discovered via metrics topics
     
     try:
