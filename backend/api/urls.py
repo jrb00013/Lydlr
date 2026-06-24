@@ -15,7 +15,7 @@ from backend.api.views import (
     MetricsExportView,
     DeploymentView, ModelRollbackView,
 )
-from backend.api.views.fleet_views import FleetLinkPolicyView
+from backend.api.views.fleet_views import FleetLinkPolicyView, FleetLinkHealthView
 
 urlpatterns = [
     path('', root, name='root'),
@@ -42,6 +42,7 @@ urlpatterns = [
     path('metrics/fleet/', MetricsFleetView.as_view(), name='metrics-fleet'),
     path('metrics/export/', MetricsExportView.as_view(), name='metrics-export'),
     path('fleet/link-policy/', FleetLinkPolicyView.as_view(), name='fleet-link-policy'),
+    path('fleet/link-policy/health/', FleetLinkHealthView.as_view(), name='fleet-link-health'),
     path('stats/', SystemStatsView.as_view(), name='stats'),
     path('devices/', DeviceListView.as_view(), name='devices-list'),
     path('devices/create/', DeviceCreateView.as_view(), name='device-create'),
