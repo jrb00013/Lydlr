@@ -81,6 +81,10 @@ from lydlr_ai.communication.modality_codec import (
     downsample_lidar,
 )
 try:
+    from lydlr_ai.model.rl_policy import RLCompressionController
+except ImportError:
+    RLCompressionController = None
+try:
     from lydlr_ai.model.quality_predictor import QualityPredictor
 except ImportError:
     QualityPredictor = None
@@ -342,6 +346,14 @@ class EdgeCompressorNode(Node):
         ingest_hz = float(os.getenv("LYDLR_INGEST_HZ", "10" if vertical == "drone" else "2"))
         self._vision_skip = vision_frame_skip(self._link_policy, ingest_hz)
         self._modality_weights = prioritize_modalities(self._link_policy)
+        self._rl_mode = os.getenv("RL_MODE", "heuristic")
+        self._rl_controller: Optional[RLCompressionController] = None
+        if self._rl_mode != "heuristic" and RLCompressionController is not None:
+            model_path = os.getenv("RL_MODEL_PATH", "")
+            self._rl_controller = RLCompressionController(
+                mode=self._rl_mode,
+                model_path=Path(model_path) if model_path else None,
+            )
         self._last_imu: Optional[np.ndarray] = None
         self._interval_bytes_out = 0
         self._interval_start = time.time()
@@ -551,6 +563,22 @@ class EdgeCompressorNode(Node):
             modality_quality = {}
             framed_chunks = {}
             comp_level = float(self.bandwidth_estimate)
+
+            if self._rl_controller is not None:
+                ratio = self._budget_ratio()
+                quality_trend = (
+                    np.mean(list(self._quality_history)[-5:])
+                    if len(self._quality_history) >= 5
+                    else self._quality_history[-1] if self._quality_history else 0.85
+                )
+                adj = self._rl_controller.predict(
+                    budget_ratio=ratio,
+                    quality_score=self._quality_history[-1] if self._quality_history else 0.85,
+                    latency_ms=self.compression_stats["latency_ms"],
+                    quality_trend=quality_trend,
+                    cpu_load=getattr(self, "_cpu_load", 0.5),
+                )
+                comp_level = max(0.1, min(0.98, comp_level + adj))
             
             # Get motor data if available
             motor_data = None
@@ -656,18 +684,14 @@ class EdgeCompressorNode(Node):
                         framed_chunks["camera"] = zlib.compress(
                             image.cpu().numpy().astype(np.float32).tobytes(), level=6
                         )
-                    raw_blob = frame_multimodal_payload(
-                        {"compressed": raw_blob, **framed_chunks}
-                    )
+                    framed_chunks["compressed"] = raw_blob
+                    raw_blob = frame_multimodal_payload(framed_chunks)
 
                 input_size = sum(modality_bytes_in.values())
                 if motor_data is not None:
                     input_size += motor_data.numel() * 4
-                output_size = len(zlib.compress(raw_blob, level=6) if isinstance(raw_blob, (bytes, bytearray)) else raw_blob)
-                if isinstance(raw_blob, (bytes, bytearray)):
-                    output_size = len(zlib.compress(raw_blob, level=6))
-                else:
-                    output_size = len(zlib.compress(raw_blob))
+                payload_bytes = raw_blob if isinstance(raw_blob, (bytes, bytearray)) else pickle.dumps(raw_blob)
+                output_size = len(zlib.compress(payload_bytes, level=6))
 
                 q_score = float(predicted_quality.item())
                 for mod_key, b_in in modality_bytes_in.items():
@@ -687,11 +711,15 @@ class EdgeCompressorNode(Node):
                 self.compression_stats['latency_ms'] = latency_ms
 
                 self.transport.publish_compressed(
-                    raw_blob,
+                    payload_bytes,
                     model_ver,
                     input_size,
                     compression_ratio,
                 )
+
+                rl_mode = self._rl_mode
+                rl_action = self._rl_controller.action if self._rl_controller else 0.0
+                rl_reward = self._rl_controller.reward if self._rl_controller else 0.0
 
                 metrics = wire.MetricsPayload(
                     node_id=self.node_id,
@@ -707,6 +735,9 @@ class EdgeCompressorNode(Node):
                     modality_bytes_in=modality_bytes_in,
                     modality_bytes_out=modality_bytes_out,
                     modality_quality=modality_quality,
+                    controller_mode=rl_mode,
+                    rl_action=rl_action,
+                    rl_reward=rl_reward,
                 )
                 self.transport.publish_metrics(metrics)
 
@@ -714,10 +745,18 @@ class EdgeCompressorNode(Node):
                     node_id=self.node_id,
                     compression_ratio=compression_ratio,
                     latency_ms=latency_ms,
-                    quality_score=float(predicted_quality.item()),
+                    quality_score=q_score,
                     bandwidth_estimate=self.bandwidth_estimate,
                     compression_level=float(comp_level.item()),
                     vertical=self.transport.vertical,
+                    bytes_in=input_size,
+                    bytes_out=output_size,
+                    modality_bytes_in=modality_bytes_in,
+                    modality_bytes_out=modality_bytes_out,
+                    modality_quality=modality_quality,
+                    controller_mode=rl_mode,
+                    rl_action=rl_action,
+                    rl_reward=rl_reward,
                 )
                 
                 self.get_logger().info(

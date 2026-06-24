@@ -49,6 +49,12 @@ export const lydlrApi = {
     return request(`/api/metrics/export/?${q}`);
   },
   fleetLinkHealth: () => request('/api/fleet/link-policy/health/'),
+  rlPolicyStatus: () => request('/api/fleet/rl-policy/'),
+  rlPolicySetMode: (mode) =>
+    request('/api/fleet/rl-policy/', {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
 };
 
 export default lydlrApi;

@@ -38,6 +38,15 @@ def report_metrics(
     compression_level: float = 0.8,
     vertical: Optional[str] = None,
     async_send: bool = True,
+    *,
+    bytes_in: Optional[int] = None,
+    bytes_out: Optional[int] = None,
+    modality_bytes_in: Optional[Dict[str, int]] = None,
+    modality_bytes_out: Optional[Dict[str, int]] = None,
+    modality_quality: Optional[Dict[str, float]] = None,
+    controller_mode: str = "heuristic",
+    rl_action: float = 0.0,
+    rl_reward: float = 0.0,
 ) -> None:
     """POST a metrics sample to the backend."""
     payload: Dict[str, Any] = {
@@ -47,10 +56,23 @@ def report_metrics(
         "quality_score": float(quality_score),
         "bandwidth_estimate": float(bandwidth_estimate),
         "compression_level": float(compression_level),
+        "controller_mode": controller_mode,
+        "rl_action": float(rl_action),
+        "rl_reward": float(rl_reward),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if vertical:
         payload["vertical"] = vertical
+    if bytes_in is not None:
+        payload["bytes_in"] = int(bytes_in)
+    if bytes_out is not None:
+        payload["bytes_out"] = int(bytes_out)
+    if modality_bytes_in:
+        payload["modality_bytes_in"] = modality_bytes_in
+    if modality_bytes_out:
+        payload["modality_bytes_out"] = modality_bytes_out
+    if modality_quality:
+        payload["modality_quality"] = modality_quality
 
     if async_send:
         threading.Thread(

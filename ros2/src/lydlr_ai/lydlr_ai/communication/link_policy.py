@@ -33,6 +33,7 @@ class NodeLinkPolicy:
     prioritize: List[str] = field(default_factory=lambda: ["lidar", "imu", "camera"])
     min_quality: float = 0.7
     allocated_mbps: float = 0.5
+    rl_mode: str = "heuristic"
 
     @classmethod
     def from_dict(cls, node_id: str, data: Optional[Dict] = None) -> "NodeLinkPolicy":
@@ -111,3 +112,26 @@ def prioritize_modalities(policy: NodeLinkPolicy) -> Dict[str, float]:
     for mod in ("camera", "lidar", "imu", "audio"):
         weights.setdefault(mod, 0.5)
     return weights
+
+
+def lidar_keep_ratio(compression_level: float) -> float:
+    """Fraction of LiDAR points to retain (higher compression → fewer points)."""
+    level = max(0.1, min(0.98, compression_level))
+    return max(0.12, 1.0 - level * 0.75)
+
+
+def should_transmit_modality(
+    modality: str,
+    weights: Dict[str, float],
+    *,
+    budget_ratio: float,
+) -> bool:
+    """
+    When estimated uplink exceeds budget, drop low-priority modalities first.
+    budget_ratio = estimated_kbps / uplink_budget_kbps
+    """
+    if budget_ratio <= 1.0:
+        return True
+    weight = weights.get(modality, 0.5)
+    threshold = 0.35 + min(0.45, (budget_ratio - 1.0) * 0.3)
+    return weight >= threshold

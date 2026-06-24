@@ -48,6 +48,9 @@ class MetricsService:
                 "bandwidth_estimate": round(m.get("bandwidth_estimate", 0), 3),
                 "bytes_in": m.get("bytes_in"),
                 "bytes_out": m.get("bytes_out"),
+                "modality_bytes_in": m.get("modality_bytes_in"),
+                "modality_bytes_out": m.get("modality_bytes_out"),
+                "modality_quality": m.get("modality_quality"),
             })
         return {"rows": table, "total": total, "limit": limit, "skip": skip}
 

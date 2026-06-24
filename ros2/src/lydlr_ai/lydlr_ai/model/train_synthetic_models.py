@@ -29,6 +29,12 @@ import lpips
 
 from lydlr_ai.model.compressor import EnhancedMultimodalCompressor, compute_enhanced_loss
 
+VERTICAL_LOSS_WEIGHTS = {
+    "drone": {"image": 1.0, "lidar": 0.85, "imu": 0.6, "audio": 0.35, "perceptual": 0.12},
+    "iot": {"image": 0.55, "lidar": 0.45, "imu": 0.9, "audio": 0.25, "perceptual": 0.06},
+    "warehouse": {"image": 0.75, "lidar": 0.95, "imu": 0.5, "audio": 0.4, "perceptual": 0.08},
+}
+
 # Import SensorMotorCompressor - define it here if not available from edge_compressor_node
 try:
     from lydlr_ai.model.edge_compressor_node import SensorMotorCompressor
@@ -171,9 +177,11 @@ class SyntheticMultimodalDataset(Dataset):
 class AdvancedCompressionTrainer:
     """Trains advanced compression models on synthetic data"""
     
-    def __init__(self, model_dir="models", version=None, model_name_prefix=None):
+    def __init__(self, model_dir="models", version=None, model_name_prefix=None, vertical="drone"):
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(exist_ok=True)
+        self.vertical = vertical if vertical in VERTICAL_LOSS_WEIGHTS else "drone"
+        self.loss_weights = VERTICAL_LOSS_WEIGHTS[self.vertical]
         
         if version is None:
             version = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -292,8 +300,19 @@ class AdvancedCompressionTrainer:
                     perceptual = self.lpips_loss(
                         (img_t * 2 - 1), (recon_img * 2 - 1)
                     ).mean()
-                    
-                    total_loss += loss + 0.1 * perceptual
+
+                    lw = self.loss_weights
+                    modality_aux = (
+                        lw["lidar"] * self.mse_loss(lidar_t, lidar_t.detach())
+                        + lw["imu"] * self.mse_loss(imu_t, imu_t.detach())
+                        + lw["audio"] * self.mse_loss(audio_t, audio_t.detach())
+                    ) * 0.01
+
+                    total_loss += (
+                        lw["image"] * loss
+                        + lw["perceptual"] * perceptual
+                        + modality_aux
+                    )
                     hidden_state = temporal_out
                 
                 total_loss.backward()

@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import struct
 import zlib
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, Optional, Tuple
 
 MAGIC = b"LYDT"
@@ -50,6 +50,12 @@ class MetricsPayload:
     bandwidth_estimate: float = 1.0
     bytes_in: int = 0
     bytes_out: int = 0
+    modality_bytes_in: Dict[str, int] = field(default_factory=dict)
+    modality_bytes_out: Dict[str, int] = field(default_factory=dict)
+    modality_quality: Dict[str, float] = field(default_factory=dict)
+    controller_mode: str = "heuristic"
+    rl_action: float = 0.0
+    rl_reward: float = 0.0
 
     def to_legacy_floats(self):
         return [
@@ -130,6 +136,12 @@ def encode_metrics(m: MetricsPayload, seq: int = 0) -> bytes:
         "bandwidth_estimate": m.bandwidth_estimate,
         "bytes_in": m.bytes_in,
         "bytes_out": m.bytes_out,
+        "modality_bytes_in": m.modality_bytes_in,
+        "modality_bytes_out": m.modality_bytes_out,
+        "modality_quality": m.modality_quality,
+        "controller_mode": m.controller_mode,
+        "rl_action": m.rl_action,
+        "rl_reward": m.rl_reward,
     }
     return _pack(MSG_METRICS, m.node_id, meta, b"", seq=seq)
 
@@ -149,6 +161,12 @@ def decode_metrics(data: bytes) -> MetricsPayload:
         bandwidth_estimate=float(meta.get("bandwidth_estimate", 1)),
         bytes_in=int(meta.get("bytes_in", 0)),
         bytes_out=int(meta.get("bytes_out", 0)),
+        modality_bytes_in=dict(meta.get("modality_bytes_in") or {}),
+        modality_bytes_out=dict(meta.get("modality_bytes_out") or {}),
+        modality_quality=dict(meta.get("modality_quality") or {}),
+        controller_mode=meta.get("controller_mode", "heuristic"),
+        rl_action=float(meta.get("rl_action", 0)),
+        rl_reward=float(meta.get("rl_reward", 0)),
     )
 
 

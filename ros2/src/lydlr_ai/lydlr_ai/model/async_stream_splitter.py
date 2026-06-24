@@ -1,53 +1,66 @@
-# This file is part of the Lydlr project.
-#
-# Copyright (C) 2025 Joseph Ronald Black
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 #async_stream_splitter.py
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import ByteMultiArray
 
+from lydlr_ai.communication.modality_codec import MODALITY_ORDER, frame_multimodal_payload, split_multimodal_payload
+
+
 class AsyncStreamSplitter(Node):
+    """Demux LYMS multimodal compressed stream into per-modality topics."""
+
+    TOPIC_MAP = {
+        "camera": "/compressed/img",
+        "lidar": "/compressed/lidar",
+        "imu": "/compressed/imu",
+        "audio": "/compressed/audio",
+    }
+
     def __init__(self):
-        super().__init__('async_stream_splitter')
+        super().__init__("async_stream_splitter")
 
         self.subscription = self.create_subscription(
             ByteMultiArray,
-            '/compressed_stream',
+            "/compressed_stream",
             self.stream_callback,
-            10)
+            10,
+        )
 
-        self.pub_img = self.create_publisher(ByteMultiArray, '/compressed/img', 10)
-        self.pub_lidar = self.create_publisher(ByteMultiArray, '/compressed/lidar', 10)
-        self.pub_imu = self.create_publisher(ByteMultiArray, '/compressed/imu', 10)
-        self.pub_audio = self.create_publisher(ByteMultiArray, '/compressed/audio', 10)
+        self.publishers = {
+            mod: self.create_publisher(ByteMultiArray, topic, 10)
+            for mod, topic in self.TOPIC_MAP.items()
+        }
+        self.merger_subs = {}
+        self._merge_buffer = {}
+        for mod, topic in self.TOPIC_MAP.items():
+            self.merger_subs[mod] = self.create_subscription(
+                ByteMultiArray,
+                topic,
+                lambda msg, m=mod: self._merge_part(m, msg),
+                10,
+            )
+        self.merge_pub = self.create_publisher(ByteMultiArray, "/compressed_stream/merged", 10)
+        self.get_logger().info("AsyncStreamSplitter ready (LYMS split + merge)")
 
     def stream_callback(self, msg):
-        data = msg.data
-        # Placeholder for splitting logic, here just forwarding raw data for demo:
-        # Split into parts depending on protocol - here assumed fixed sizes (replace with actual parsing)
-        img_data = data[0:1000]
-        lidar_data = data[1000:2000]
-        imu_data = data[2000:2100]
-        audio_data = data[2100:]
+        try:
+            chunks = split_multimodal_payload(bytes(msg.data))
+        except ValueError as exc:
+            self.get_logger().warn(f"Invalid LYMS frame: {exc}")
+            return
 
-        self.pub_img.publish(ByteMultiArray(data=img_data))
-        self.pub_lidar.publish(ByteMultiArray(data=lidar_data))
-        self.pub_imu.publish(ByteMultiArray(data=imu_data))
-        self.pub_audio.publish(ByteMultiArray(data=audio_data))
+        for mod, data in chunks.items():
+            pub = self.publishers.get(mod)
+            if pub:
+                pub.publish(ByteMultiArray(data=list(data)))
+
+    def _merge_part(self, modality: str, msg):
+        self._merge_buffer[modality] = bytes(msg.data)
+        if all(m in self._merge_buffer for m in MODALITY_ORDER):
+            framed = frame_multimodal_payload(self._merge_buffer)
+            self.merge_pub.publish(ByteMultiArray(data=list(framed)))
+            self._merge_buffer.clear()
+
 
 def main(args=None):
     rclpy.init(args=args)

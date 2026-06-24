@@ -182,6 +182,7 @@ class MetricsExportView(AsyncAPIView):
                 "timestamp", "node_id", "vertical", "compression_ratio",
                 "latency_ms", "quality_score", "compression_level",
                 "bandwidth_estimate", "bytes_in", "bytes_out",
+                "modality_bytes_in", "modality_bytes_out", "modality_quality",
             ]
             writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
             writer.writeheader()

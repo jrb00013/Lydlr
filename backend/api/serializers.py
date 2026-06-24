@@ -80,6 +80,15 @@ class MetricsTableRowSerializer(serializers.Serializer):
     bandwidth_estimate = serializers.FloatField(required=False)
     bytes_in = serializers.IntegerField(required=False, allow_null=True)
     bytes_out = serializers.IntegerField(required=False, allow_null=True)
+    modality_bytes_in = serializers.DictField(
+        child=serializers.IntegerField(), required=False
+    )
+    modality_bytes_out = serializers.DictField(
+        child=serializers.IntegerField(), required=False
+    )
+    modality_quality = serializers.DictField(
+        child=serializers.FloatField(), required=False
+    )
 
 
 class MetricsRollupRowSerializer(serializers.Serializer):
@@ -110,6 +119,17 @@ class CompressionMetricsSerializer(serializers.Serializer):
     bandwidth_estimate = serializers.FloatField(default=1.0)
     compression_level = serializers.FloatField(default=0.8)
     vertical = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    bytes_in = serializers.IntegerField(required=False, allow_null=True)
+    bytes_out = serializers.IntegerField(required=False, allow_null=True)
+    modality_bytes_in = serializers.DictField(
+        child=serializers.IntegerField(), required=False
+    )
+    modality_bytes_out = serializers.DictField(
+        child=serializers.IntegerField(), required=False
+    )
+    modality_quality = serializers.DictField(
+        child=serializers.FloatField(), required=False
+    )
     timestamp = serializers.DateTimeField(default=datetime.utcnow)
 
 
@@ -135,6 +155,11 @@ class DeploymentRequestSerializer(serializers.Serializer):
     strategy = serializers.ChoiceField(
         choices=["fleet", "canary"],
         default="fleet",
+        required=False,
+    )
+    inference_backend = serializers.ChoiceField(
+        choices=["torch", "onnx", "trt"],
+        default="torch",
         required=False,
     )
 

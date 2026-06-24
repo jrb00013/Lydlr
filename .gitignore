@@ -73,3 +73,6 @@ Thumbs.db
 
 # ROS2
 .ros/
+
+# Multi-AI coordination (polylogue journal — not application source)
+.deepiri/

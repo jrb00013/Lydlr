@@ -23,11 +23,14 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32MultiArray, Header
 
+from lydlr_ai.communication.modality_codec import audio_to_mel
+
 
 class SensorIngestNode(Node):
     PROFILES = {
         "drone": {"hz": 10.0, "img_size": 224, "lidar_points": 64, "audio_samples": 4096},
         "iot": {"hz": 2.0, "img_size": 128, "lidar_points": 32, "audio_samples": 1024},
+        "warehouse": {"hz": 5.0, "img_size": 160, "lidar_points": 96, "audio_samples": 2048},
     }
 
     def __init__(self):
@@ -36,6 +39,7 @@ class SensorIngestNode(Node):
         vertical = os.getenv("LYDLR_VERTICAL", "drone").lower()
         self.vertical = vertical if vertical in self.PROFILES else "drone"
         self.profile = self.PROFILES[self.vertical]
+        self._audio_sr = int(os.getenv("LYDLR_AUDIO_SAMPLE_RATE", "16000"))
         self._tick = 0
         self._replay_frames = []
         self._camera = None
@@ -113,10 +117,19 @@ class SensorIngestNode(Node):
                         dtype=np.float32,
                     ),
                     "lidar": np.random.randn(p["lidar_points"]).astype(np.float32),
-                    "audio": np.random.randn(p["audio_samples"]).astype(np.float32) * 0.01,
+                    "audio": self._audio_features(self._synth_audio_wave(i, p["audio_samples"])),
                 }
             )
         return frames
+
+    def _synth_audio_wave(self, tick: int, n_samples: int) -> np.ndarray:
+        t = np.linspace(0, 1, n_samples, dtype=np.float32)
+        wave = 0.02 * np.sin(2 * math.pi * (220 + 30 * math.sin(tick * 0.1)) * t)
+        wave += 0.005 * np.random.randn(n_samples).astype(np.float32)
+        return wave.astype(np.float32)
+
+    def _audio_features(self, wave: np.ndarray) -> np.ndarray:
+        return audio_to_mel(wave, sample_rate=self._audio_sr)
 
     def _start_rosbag_play(self):
         bag = os.getenv("LYDLR_ROSBAG_PATH", "")
@@ -168,7 +181,7 @@ class SensorIngestNode(Node):
                     "image": rgb,
                     "imu": imu,
                     "lidar": np.random.randn(p["lidar_points"]).astype(np.float32),
-                    "audio": np.random.randn(p["audio_samples"]).astype(np.float32) * 0.01,
+                    "audio": self._audio_features(self._synth_audio_wave(self._tick, p["audio_samples"])),
                 }
 
         t = self._tick * 0.1
@@ -178,8 +191,17 @@ class SensorIngestNode(Node):
             "image": img,
             "imu": np.array([0, 0, 9.81, 0, 0, 0], dtype=np.float32),
             "lidar": np.random.randn(p["lidar_points"]).astype(np.float32),
-            "audio": np.random.randn(p["audio_samples"]).astype(np.float32) * 0.01,
+            "audio": self._audio_features(self._synth_audio_wave(self._tick, p["audio_samples"])),
         }
+
+    def _audio_payload(self, frame) -> np.ndarray:
+        audio = frame.get("audio")
+        if audio is None:
+            return self._audio_features(self._synth_audio_wave(self._tick, self.profile["audio_samples"]))
+        arr = np.asarray(audio, dtype=np.float32)
+        if arr.size > 128 * 128:
+            return self._audio_features(arr)
+        return arr
 
     def _publish_frame(self, frame, stamp):
         img = frame["image"]
@@ -197,7 +219,7 @@ class SensorIngestNode(Node):
         for topic_data, pub in (
             (frame["imu"], self.pub_imu),
             (frame["lidar"], self.pub_lidar),
-            (frame["audio"], self.pub_audio),
+            (self._audio_payload(frame), self.pub_audio),
         ):
             arr = Float32MultiArray()
             arr.data = np.asarray(topic_data, dtype=np.float32).tolist()

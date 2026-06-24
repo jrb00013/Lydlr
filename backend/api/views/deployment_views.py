@@ -18,6 +18,7 @@ from backend.api.node_manager import deploy_model_to_node
 logger = logging.getLogger(__name__)
 
 MODEL_DIR = Path(os.getenv('MODEL_DIR', '/app/models'))
+BUNDLE_DIR = Path(os.getenv('DEPLOY_BUNDLE_DIR', '/app/deploy_bundles'))
 
 
 class DeploymentView(AsyncAPIView):
@@ -33,6 +34,7 @@ class DeploymentView(AsyncAPIView):
         model_version = serializer.validated_data['model_version']
         node_ids = serializer.validated_data['node_ids']
         strategy = serializer.validated_data.get('strategy', 'fleet')
+        inference_backend = serializer.validated_data.get('inference_backend', 'torch')
 
         if strategy == 'canary' and len(node_ids) > 1:
             node_ids = [node_ids[0]]
@@ -117,6 +119,7 @@ class DeploymentView(AsyncAPIView):
             "model_version": model_version,
             "node_ids": node_ids,
             "strategy": strategy,
+            "inference_backend": inference_backend,
             "deployed_at": datetime.utcnow(),
             "status": "deploying"
         }
@@ -146,6 +149,21 @@ class DeploymentView(AsyncAPIView):
                 if src_metadata.exists():
                     dst_metadata = node_model_dir / metadata_filename
                     shutil.copy2(src_metadata, dst_metadata)
+
+                bundle_src = BUNDLE_DIR / f"jetson_{model_version}"
+                if not bundle_src.exists():
+                    bundle_src = BUNDLE_DIR / f"jetson_v{normalized_version}"
+                if bundle_src.exists() and inference_backend in ("onnx", "trt"):
+                    node_bundle = node_model_dir / "bundle"
+                    if node_bundle.exists():
+                        shutil.rmtree(node_bundle)
+                    shutil.copytree(bundle_src, node_bundle)
+                    manifest_path = node_bundle / "manifest.json"
+                    if manifest_path.exists():
+                        import json
+                        manifest = json.loads(manifest_path.read_text())
+                        manifest["inference_backend"] = inference_backend
+                        manifest_path.write_text(json.dumps(manifest, indent=2))
                 
                 # Update node record with new model version
                 await db.nodes.update_one(
@@ -153,6 +171,7 @@ class DeploymentView(AsyncAPIView):
                     {
                         "$set": {
                             "model_version": model_version,
+                            "inference_backend": inference_backend,
                             "last_update": datetime.utcnow()
                         }
                     }
@@ -213,6 +232,7 @@ class DeploymentView(AsyncAPIView):
             "successful_nodes": successful_nodes,
             "failed_nodes": [node["node_id"] for node in failed_nodes] if failed_nodes else [],
             "ros_deployed": ros_deployed,
+            "inference_backend": inference_backend,
         })
         
         if failed_nodes:
@@ -232,6 +252,7 @@ class DeploymentView(AsyncAPIView):
             "status": deployment_status,
             "successful_nodes": successful_nodes,
             "ros_deployed": ros_deployed,
+            "inference_backend": inference_backend,
             "strategy": strategy,
             "message": f"Model {model_version} deployed to {len(successful_nodes)} node(s)"
         })

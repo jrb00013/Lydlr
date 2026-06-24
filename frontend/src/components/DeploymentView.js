@@ -16,6 +16,7 @@ function DeploymentView() {
   const [selectedNodes, setSelectedNodes] = useState([]);
   const [deployments, setDeployments] = useState([]);
   const [deployStrategy, setDeployStrategy] = useState('fleet');
+  const [inferenceBackend, setInferenceBackend] = useState('torch');
   const [deploying, setDeploying] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +53,7 @@ function DeploymentView() {
         model_version: selectedModel,
         node_ids: selectedNodes,
         strategy: deployStrategy,
+        inference_backend: inferenceBackend,
       });
       const rosCount = (result.ros_deployed || []).length;
       notification.showSuccess(
@@ -163,6 +165,20 @@ function DeploymentView() {
             </select>
           </div>
 
+          <div className="form-group">
+            <label htmlFor="inference-backend">Inference backend</label>
+            <select
+              id="inference-backend"
+              value={inferenceBackend}
+              onChange={(e) => setInferenceBackend(e.target.value)}
+              className="form-select"
+            >
+              <option value="torch">PyTorch — edge_compressor_node</option>
+              <option value="onnx">ONNX — Jetson bundle (CPU/GPU)</option>
+              <option value="trt">TensorRT — Orin engine</option>
+            </select>
+          </div>
+
           <button
             type="button"
             className="btn btn-primary deploy-btn"
@@ -189,6 +205,9 @@ function DeploymentView() {
                   </div>
                   <div className="deployment-details">
                     <span>Nodes: {(deployment.node_ids || []).join(', ')}</span>
+                    {deployment.inference_backend && (
+                      <span>Backend: {deployment.inference_backend}</span>
+                    )}
                     <span className="deployment-time">
                       {deployment.deployed_at
                         ? new Date(deployment.deployed_at).toLocaleString()

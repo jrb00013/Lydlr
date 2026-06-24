@@ -70,14 +70,19 @@ def main():
         "format": "onnx",
         "target": "jetson_orin",
         "precision": "fp32",
+        "inference_backend": "onnx",
         "files": {
             "onnx": onnx_path.name,
             "weights_source": weights.name,
         },
+        "env": {
+            "INFERENCE_BACKEND": "onnx",
+            "LYDLR_DEPLOY_BUNDLE": str(bundle_dir),
+        },
         "launch_snippet": (
-            f"ros2 run lydlr_ai edge_compressor_node  # MODEL_VERSION={args.version}"
+            f"INFERENCE_BACKEND=onnx ros2 run lydlr_ai trt_inference_node  # MODEL_VERSION={args.version}"
         ),
-        "tensorrt_hint": f"trtexec --onnx={onnx_path.name} --saveEngine=model.trt --fp16",
+        "tensorrt_hint": f"./scripts/build_tensorrt_engine.sh {bundle_dir} fp16",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     (bundle_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))

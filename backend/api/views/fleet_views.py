@@ -1,12 +1,38 @@
 """Fleet link policy API for ROS coordinator."""
 import logging
+import os
 
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from backend.api.views.base import AsyncAPIView, ensure_db_connection
 from backend.api.services.link_policy_service import build_fleet_link_policy
 
 logger = logging.getLogger(__name__)
+
+# In-memory RL mode (persists across requests, reset on restart)
+_RL_MODE = os.getenv("RL_MODE", "heuristic")
+_RL_STEP = 0
+_RL_ACTION = 0.0
+_RL_REWARD = 0.0
+
+
+@api_view(["GET", "POST"])
+def rl_policy(request):
+    global _RL_MODE, _RL_STEP, _RL_ACTION, _RL_REWARD
+    if request.method == "POST":
+        body = request.data or {}
+        mode = body.get("mode", "heuristic")
+        if mode not in ("heuristic", "ppo"):
+            return Response({"error": f"unknown mode: {mode}"}, status=400)
+        _RL_MODE = mode
+        return Response({"mode": _RL_MODE, "status": "updated"})
+    return Response({
+        "mode": _RL_MODE,
+        "step": _RL_STEP,
+        "rl_action": _RL_ACTION,
+        "rl_reward": _RL_REWARD,
+    })
 
 
 class FleetLinkPolicyView(AsyncAPIView):

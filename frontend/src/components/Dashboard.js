@@ -20,6 +20,7 @@ import MemoryIcon from '@mui/icons-material/Memory';
 import PageHeader from './ui/PageHeader';
 import LoadingSpinner from './ui/LoadingSpinner';
 import LinkBudgetPanel from './LinkBudgetPanel';
+import RLPolicyPanel from './RLPolicyPanel';
 import './Dashboard.css';
 import { useSmartPolling } from '../hooks/useSmartPolling';
 
@@ -217,6 +218,8 @@ function Dashboard({ connected }) {
       </div>
 
       <LinkBudgetPanel />
+
+      <RLPolicyPanel />
 
       <div className="charts-section">
         <div className="card chart-card">

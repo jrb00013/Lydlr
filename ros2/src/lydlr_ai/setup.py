@@ -72,6 +72,8 @@ setup(
             'communication_hub = lydlr_ai.communication_hub_node:main',
             'sensor_ingest = lydlr_ai.ingest.sensor_ingest_node:main',
             'qos_auto_tuner = lydlr_ai.model.qos_auto_tuner:main',
+            'trt_inference_node = lydlr_ai.model.trt_inference_node:main',
+            'async_stream_splitter = lydlr_ai.model.async_stream_splitter:main',
         ],
     },
 )
