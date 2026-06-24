@@ -229,6 +229,26 @@ class DeviceSerializer(serializers.Serializer):
     metadata = serializers.DictField(default=dict)
 
 
+class FederatedRoundStartSerializer(serializers.Serializer):
+    participant_node_ids = serializers.ListField(child=serializers.CharField())
+    base_version = serializers.CharField()
+    max_delta_kbps = serializers.FloatField(default=128, min_value=1, max_value=10000)
+
+
+class FederatedRoundSerializer(serializers.Serializer):
+    round_id = serializers.CharField()
+    participant_node_ids = serializers.ListField(child=serializers.CharField())
+    base_version = serializers.CharField()
+    max_delta_kbps = serializers.FloatField()
+    status = serializers.CharField()
+    initiated_by = serializers.CharField()
+    started_at = serializers.DateTimeField()
+    completed_at = serializers.DateTimeField(allow_null=True)
+    merged_version = serializers.CharField(allow_null=True, allow_blank=True)
+    deltas = serializers.ListField(child=serializers.DictField(), required=False)
+    participant_status = serializers.DictField(child=serializers.DictField())
+
+
 class DeviceCreateSerializer(serializers.Serializer):
     """Serializer for creating a new device"""
     device_id = serializers.CharField(required=False)  # Auto-generated if not provided

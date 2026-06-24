@@ -16,6 +16,7 @@ node_model_assignments Active model version per node
 metrics               Raw time-series samples (TTL 7d)
 metrics_rollups       Hourly aggregates per node (long retention)
 deployments           Deploy audit trail
+federated_rounds      Federated FedAvg round state + merged artifacts
 system_config         Fleet / orchestration settings
 """
 
@@ -29,6 +30,7 @@ COLLECTIONS = {
     "METRICS": "metrics",
     "METRICS_ROLLUPS": "metrics_rollups",
     "DEPLOYMENTS": "deployments",
+    "FEDERATED_ROUNDS": "federated_rounds",
     "SYSTEM_CONFIG": "system_config",
 }
 
@@ -57,6 +59,9 @@ INDEX_SPECS = [
     (COLLECTIONS["DEPLOYMENTS"], [("deployment_id", 1)]),
     (COLLECTIONS["DEPLOYMENTS"], [("deployed_at", -1)]),
     (COLLECTIONS["DEPLOYMENTS"], [("node_ids", 1)]),
+    (COLLECTIONS["FEDERATED_ROUNDS"], [("round_id", 1)], {"unique": True}),
+    (COLLECTIONS["FEDERATED_ROUNDS"], [("created_at", -1)]),
+    (COLLECTIONS["FEDERATED_ROUNDS"], [("status", 1)]),
     (COLLECTIONS["SYSTEM_CONFIG"], [("type", 1)], {"unique": True}),
     # Legacy models collection
     (COLLECTIONS["MODELS"], [("version", 1)], {"unique": True}),

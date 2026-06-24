@@ -178,6 +178,58 @@ def build_deployment_document(
     }
 
 
+def build_federated_round_document(
+    participant_node_ids: List[str],
+    *,
+    base_version: str,
+    max_delta_kbps: float = 128.0,
+    inference_backend: str = "onnx",
+    round_id: Optional[str] = None,
+    status: str = "pending",
+    initiated_by: str = "coordinator",
+) -> Dict[str, Any]:
+    now = _utcnow()
+    rid = round_id or hashlib.sha256(
+        f"{base_version}:{','.join(sorted(participant_node_ids))}:{now.isoformat()}".encode()
+    ).hexdigest()[:16]
+    full_id = rid if str(rid).startswith("fr_") else f"fr_{rid}"
+    participants = [
+        {
+            "node_id": nid,
+            "status": "pending",
+            "delta_sha256": "",
+            "modality_bytes_out": 0,
+        }
+        for nid in participant_node_ids
+    ]
+    participant_status = {
+        nid: {
+            "status": "pending",
+            "delta_kbps": 0,
+            "checksum_sha256": None,
+            "modality_bytes_out": 0,
+        }
+        for nid in participant_node_ids
+    }
+    return {
+        "round_id": full_id,
+        "status": status,
+        "base_version": base_version,
+        "merged_version": None,
+        "participant_node_ids": list(participant_node_ids),
+        "participants": participants,
+        "participant_status": participant_status,
+        "max_delta_kbps": float(max_delta_kbps),
+        "modality_bytes_out_total": 0,
+        "inference_backend": inference_backend,
+        "initiated_by": initiated_by,
+        "deltas": [],
+        "created_at": now,
+        "started_at": now,
+        "completed_at": None,
+    }
+
+
 def build_node_assignment(node_id: str, model_version: str, artifact_id: str) -> Dict[str, Any]:
     return {
         "node_id": node_id,
@@ -186,3 +238,4 @@ def build_node_assignment(node_id: str, model_version: str, artifact_id: str) ->
         "status": "active",
         "assigned_at": _utcnow(),
     }
+

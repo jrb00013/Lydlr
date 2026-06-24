@@ -55,6 +55,26 @@ export const lydlrApi = {
       method: 'POST',
       body: JSON.stringify({ mode }),
     }),
+  federatedRounds: () => request('/api/federated/rounds/'),
+  federatedRound: (roundId) => request(`/api/federated/rounds/${roundId}/`),
+  federatedStartRound: (body) =>
+    request('/api/federated/rounds/', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  federatedRoundsExport: async () => {
+    const res = await fetch(`${API_URL}/api/federated/rounds/?format=csv`);
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    return res.blob();
+  },
+  // legacy aliases
+  federatedRoundsList: () => request('/api/federated/rounds/'),
+  federatedRoundDetail: (roundId) => request(`/api/federated/rounds/${roundId}/`),
+  startFederatedRound: (body) =>
+    request('/api/federated/rounds/', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 export default lydlrApi;

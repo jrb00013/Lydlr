@@ -8,6 +8,7 @@ import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import GroupsIcon from '@mui/icons-material/Groups';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import CompressIcon from '@mui/icons-material/Compress';
@@ -17,6 +18,7 @@ import NodesView from './components/NodesView';
 import ModelsView from './components/ModelsView';
 import MetricsView from './components/MetricsView';
 import DeploymentView from './components/DeploymentView';
+import FederatedView from './components/FederatedView';
 import DevicesView from './components/DevicesView';
 import WorkspaceView from './components/WorkspaceView';
 import VisualMonitoring from './components/VisualMonitoring';
@@ -37,6 +39,7 @@ const NAV_ITEMS = [
   { to: '/metrics', label: 'Metrics', icon: AnalyticsIcon },
   { to: '/visual', label: 'Visual', icon: VisibilityIcon },
   { to: '/deploy', label: 'Deploy', icon: RocketLaunchIcon },
+  { to: '/federated', label: 'Federated', icon: GroupsIcon },
 ];
 
 function AppShell() {
@@ -136,6 +139,7 @@ function AppShell() {
                 <Route path="/metrics" element={<MetricsView />} />
                 <Route path="/visual" element={<VisualMonitoring />} />
                 <Route path="/deploy" element={<DeploymentView />} />
+                <Route path="/federated" element={<FederatedView />} />
               </Routes>
             </main>
 

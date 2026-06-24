@@ -16,6 +16,7 @@ from backend.api.views import (
     DeploymentView, ModelRollbackView,
 )
 from backend.api.views.fleet_views import FleetLinkPolicyView, FleetLinkHealthView, rl_policy
+from backend.api.views.federated_views import FederatedRoundDetailView, FederatedRoundListView
 
 urlpatterns = [
     path('', root, name='root'),
@@ -54,5 +55,7 @@ urlpatterns = [
     path('workspace/', WorkspaceView.as_view(), name='workspace'),
     path('diagnostic/', DiagnosticView.as_view(), name='diagnostic'),
     path('orchestration/status/', OrchestrationStatusView.as_view(), name='orchestration-status'),
+    path('federated/rounds/', FederatedRoundListView.as_view(), name='federated-rounds'),
+    path('federated/rounds/<str:round_id>/', FederatedRoundDetailView.as_view(), name='federated-round-detail'),
 ]
 

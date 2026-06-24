@@ -40,6 +40,7 @@ from backend.api.views.metrics_views import (
     MetricsExportView,
 )
 from backend.api.views.fleet_views import FleetLinkPolicyView
+from backend.api.views.federated_views import FederatedRoundDetailView, FederatedRoundListView
 from backend.api.views.deployment_views import DeploymentView, ModelRollbackView
 
 __all__ = [
@@ -80,6 +81,8 @@ __all__ = [
     'MetricsFleetView',
     'MetricsExportView',
     'FleetLinkPolicyView',
+    'FederatedRoundDetailView',
+    'FederatedRoundListView',
     # Deployment
     'DeploymentView',
     'ModelRollbackView',
