@@ -56,6 +56,7 @@ from pathlib import Path
 import pickle
 import zlib
 from typing import Dict, Any, Optional, Callable
+from collections import deque
 
 try:
     import psutil
@@ -67,7 +68,18 @@ from lydlr_ai.utils.metrics_reporter import report_metrics
 from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
 from lydlr_ai.communication.topics import LydlrTopics
 from lydlr_ai.communication import wire
-from lydlr_ai.communication.link_policy import NodeLinkPolicy, vision_frame_skip, kbps_to_mbps
+from lydlr_ai.communication.link_policy import (
+    NodeLinkPolicy,
+    vision_frame_skip,
+    prioritize_modalities,
+    should_transmit_modality,
+    estimate_output_kbps,
+)
+from lydlr_ai.communication.modality_codec import (
+    encode_imu_delta,
+    frame_multimodal_payload,
+    downsample_lidar,
+)
 try:
     from lydlr_ai.model.quality_predictor import QualityPredictor
 except ImportError:
@@ -294,7 +306,14 @@ class EdgeCompressorNode(Node):
         
         # Quality predictor
         self.quality_predictor = QualityPredictor()
-        
+
+        # Quality guard state — LPIPS-driven level adjustment
+        self._quality_history = deque(maxlen=20)
+        self._consecutive_low_quality = 0
+        self._consecutive_good_quality = 0
+        self._quality_guard_suppression = 0.0
+        self._min_quality_threshold = 0.7
+
         # State
         self.hidden_state = None
         self.bandwidth_estimate = 1.0  # Normalized bandwidth (0-1)
@@ -322,6 +341,12 @@ class EdgeCompressorNode(Node):
         )
         ingest_hz = float(os.getenv("LYDLR_INGEST_HZ", "10" if vertical == "drone" else "2"))
         self._vision_skip = vision_frame_skip(self._link_policy, ingest_hz)
+        self._modality_weights = prioritize_modalities(self._link_policy)
+        self._last_imu: Optional[np.ndarray] = None
+        self._interval_bytes_out = 0
+        self._interval_start = time.time()
+        self._active_modalities = {"camera", "lidar", "imu", "audio"}
+        self._min_quality_threshold = self._link_policy.min_quality
 
         # Lydlr transport layer (LYDT wire + legacy topics)
         self.transport = EdgeTransportLayer(self, node_id)
@@ -360,6 +385,22 @@ class EdgeCompressorNode(Node):
         if payload.allocated_mbps > 0:
             self._allocated_mbps = payload.allocated_mbps
             self._uplink_budget_kbps = payload.allocated_mbps * 1000.0
+            self._link_policy.allocated_mbps = payload.allocated_mbps
+            self._link_policy.uplink_budget_kbps = self._uplink_budget_kbps
+
+    def _budget_ratio(self) -> float:
+        elapsed = max(time.time() - self._interval_start, 0.05)
+        est_kbps = estimate_output_kbps(self._interval_bytes_out, elapsed)
+        budget = max(self._link_policy.uplink_budget_kbps, 8.0)
+        return est_kbps / budget
+
+    def _refresh_modality_gates(self):
+        ratio = self._budget_ratio()
+        self._active_modalities = {
+            mod
+            for mod in ("camera", "lidar", "imu", "audio")
+            if should_transmit_modality(mod, self._modality_weights, budget_ratio=ratio)
+        }
 
     def _publish_heartbeat(self):
         version = self.model_registry.model_version or ""
@@ -390,6 +431,8 @@ class EdgeCompressorNode(Node):
     
     def lidar_callback(self, msg):
         """Process LiDAR data"""
+        if "lidar" not in self._active_modalities:
+            return
         try:
             lidar_data = np.array(msg.data, dtype=np.float32)
             lidar_tensor = torch.tensor(lidar_data).unsqueeze(0)
@@ -404,6 +447,8 @@ class EdgeCompressorNode(Node):
     
     def imu_callback(self, msg):
         """Process IMU data"""
+        if "imu" not in self._active_modalities:
+            return
         try:
             imu_data = np.array(msg.data, dtype=np.float32)
             imu_tensor = torch.tensor(imu_data).unsqueeze(0)
@@ -418,6 +463,8 @@ class EdgeCompressorNode(Node):
     
     def audio_callback(self, msg):
         """Process audio data"""
+        if "audio" not in self._active_modalities:
+            return
         try:
             audio_data = np.array(msg.data, dtype=np.float32)
             audio_tensor = torch.tensor(audio_data).unsqueeze(0)
@@ -468,13 +515,14 @@ class EdgeCompressorNode(Node):
             self.get_logger().error(f"❌ Failed to load script {script_name}")
     
     def update_bandwidth(self):
-        """Monitor and update bandwidth estimate"""
-        # Monitor network bandwidth (simplified)
-        net_io = psutil.net_io_counters()
+        """Monitor and update bandwidth estimate + modality gates."""
+        if psutil is None:
+            return
         cpu_load = psutil.cpu_percent() / 100.0
-        
-        # Adaptive bandwidth estimate based on system load
         self.bandwidth_estimate = max(0.1, 1.0 - cpu_load * 0.5)
+        self._refresh_modality_gates()
+        self._interval_bytes_out = 0
+        self._interval_start = time.time()
     
     def compress_loop(self):
         """Main compression loop - runs in real-time"""
@@ -484,13 +532,25 @@ class EdgeCompressorNode(Node):
         start_time = time.time()
         
         try:
+            self._refresh_modality_gates()
+
             # Collect sensor data
             sensor_data = []
             while not self.sensor_buffer.empty() and len(sensor_data) < 4:
-                sensor_data.append(self.sensor_buffer.get())
+                item = self.sensor_buffer.get()
+                mod_type = item.get("type")
+                mod_key = "camera" if mod_type == "image" else mod_type
+                if mod_key in self._active_modalities:
+                    sensor_data.append(item)
             
             if not sensor_data:
                 return
+            
+            modality_bytes_in = {}
+            modality_bytes_out = {}
+            modality_quality = {}
+            framed_chunks = {}
+            comp_level = float(self.bandwidth_estimate)
             
             # Get motor data if available
             motor_data = None
@@ -515,14 +575,28 @@ class EdgeCompressorNode(Node):
                 audio = None
                 
                 for item in sensor_data:
+                    mod = item["type"]
+                    raw_bytes = int(item["data"].numel() * 4)
+                    mod_key = "camera" if mod == "image" else mod
+                    modality_bytes_in[mod_key] = modality_bytes_in.get(mod_key, 0) + raw_bytes
+
                     if item['type'] == 'image':
                         image = item['data']
                     elif item['type'] == 'lidar':
-                        lidar = item['data']
+                        lidar_np = downsample_lidar(
+                            item['data'].cpu().numpy().reshape(-1),
+                            comp_level,
+                        )
+                        lidar = torch.tensor(lidar_np, dtype=torch.float32).unsqueeze(0)
+                        framed_chunks["lidar"] = lidar_np.astype(np.float32).tobytes()
                     elif item['type'] == 'imu':
-                        imu = item['data']
+                        imu_np = item['data'].cpu().numpy().reshape(-1)
+                        delta_bytes, self._last_imu = encode_imu_delta(self._last_imu, imu_np)
+                        imu = torch.tensor(imu_np, dtype=torch.float32).unsqueeze(0)
+                        framed_chunks["imu"] = delta_bytes
                     elif item['type'] == 'audio':
                         audio = item['data']
+                        framed_chunks["audio"] = item['data'].cpu().numpy().astype(np.float32).tobytes()
                 
                 # Use defaults if missing
                 if image is None:
@@ -543,7 +617,32 @@ class EdgeCompressorNode(Node):
                         target_quality=0.8
                     )
                     self.hidden_state = temporal_out
-                
+
+                    quality_val = float(predicted_quality.item())
+                    self._quality_history.append(quality_val)
+                    if quality_val < self._min_quality_threshold:
+                        self._consecutive_low_quality += 1
+                        self._consecutive_good_quality = 0
+                    else:
+                        self._consecutive_good_quality += 1
+                        self._consecutive_low_quality = 0
+
+                    if self._consecutive_low_quality >= 3:
+                        self._quality_guard_suppression = min(
+                            0.6, self._quality_guard_suppression + 0.15
+                        )
+                    elif self._consecutive_good_quality >= 5 and self._quality_guard_suppression > 0:
+                        self._quality_guard_suppression = max(
+                            0.0, self._quality_guard_suppression - 0.1
+                        )
+
+                    effective_level = max(
+                        0.1,
+                        self.bandwidth_estimate - self._quality_guard_suppression,
+                    )
+                    if effective_level != self.bandwidth_estimate:
+                        self.bandwidth_estimate = effective_level
+
                 # Sensor-motor compression
                 sensor_feat = compressed.mean(dim=-1, keepdim=True).expand(-1, 256)
                 compressed_sm, sensor_decoded, motor_decoded, _, comp_level = \
@@ -552,10 +651,31 @@ class EdgeCompressorNode(Node):
                     )
                 
                 raw_blob = pickle.dumps(compressed_sm.cpu().numpy())
-                input_size = sum(item['data'].numel() * 4 for item in sensor_data)
+                if framed_chunks:
+                    if image is not None:
+                        framed_chunks["camera"] = zlib.compress(
+                            image.cpu().numpy().astype(np.float32).tobytes(), level=6
+                        )
+                    raw_blob = frame_multimodal_payload(
+                        {"compressed": raw_blob, **framed_chunks}
+                    )
+
+                input_size = sum(modality_bytes_in.values())
                 if motor_data is not None:
                     input_size += motor_data.numel() * 4
-                output_size = len(zlib.compress(raw_blob))
+                output_size = len(zlib.compress(raw_blob, level=6) if isinstance(raw_blob, (bytes, bytearray)) else raw_blob)
+                if isinstance(raw_blob, (bytes, bytearray)):
+                    output_size = len(zlib.compress(raw_blob, level=6))
+                else:
+                    output_size = len(zlib.compress(raw_blob))
+
+                q_score = float(predicted_quality.item())
+                for mod_key, b_in in modality_bytes_in.items():
+                    share = b_in / max(input_size, 1)
+                    modality_bytes_out[mod_key] = int(output_size * share)
+                    modality_quality[mod_key] = q_score
+
+                self._interval_bytes_out += output_size
 
                 compression_ratio = input_size / max(output_size, 1)
                 latency_ms = (time.time() - start_time) * 1000
@@ -580,10 +700,13 @@ class EdgeCompressorNode(Node):
                     compression_ratio=compression_ratio,
                     latency_ms=latency_ms,
                     compression_level=float(comp_level.item()),
-                    quality_score=float(predicted_quality.item()),
+                    quality_score=q_score,
                     bandwidth_estimate=self._uplink_budget_kbps or self.bandwidth_estimate * 512,
                     bytes_in=input_size,
                     bytes_out=output_size,
+                    modality_bytes_in=modality_bytes_in,
+                    modality_bytes_out=modality_bytes_out,
+                    modality_quality=modality_quality,
                 )
                 self.transport.publish_metrics(metrics)
 
