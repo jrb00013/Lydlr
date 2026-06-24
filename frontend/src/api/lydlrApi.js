@@ -48,6 +48,7 @@ export const lydlrApi = {
     const q = new URLSearchParams(params);
     return request(`/api/metrics/export/?${q}`);
   },
+  fleetLinkHealth: () => request('/api/fleet/link-policy/health/'),
 };
 
 export default lydlrApi;
