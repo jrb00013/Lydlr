@@ -17,6 +17,21 @@ import lpips
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import math
 
+try:
+    from lydlr_ai.model.advanced_compression_models import (
+        NeuralQuantizer,
+        LearnedEntropyCoder,
+        AttentionCompressor,
+        MultiScaleCompressor,
+    )
+    _ADVANCED_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    NeuralQuantizer = None
+    LearnedEntropyCoder = None
+    AttentionCompressor = None
+    MultiScaleCompressor = None
+    _ADVANCED_AVAILABLE = False
+
 # ============================================================================
 # IMPROVEMENT 1: Enhanced VAE with β-VAE and Progressive Decoding
 # ============================================================================
@@ -604,12 +619,39 @@ class QualityAssessor:
 # MAIN ENHANCED COMPRESSOR
 # ============================================================================
 
-class EnhancedMultimodalCompressor(nn.Module):
-    """Enhanced multimodal compressor with all improvements.
+class TemporalFrameBuffer:
+    """Ring buffer of fused features for multi-frame temporal coding."""
 
-    Transmit path is tied to the VAE latent (mu) fused with multimodal
-    temporal features so reconstruction training and the wire code share
-    the same representation (see NEURAL_COMPRESSION_RD_PLAN.md).
+    def __init__(self, max_frames: int = 8):
+        self.max_frames = max_frames
+        self._frames = []
+
+    def reset(self):
+        self._frames = []
+
+    def push(self, feat: torch.Tensor):
+        # feat: (B, D)
+        self._frames.append(feat.detach())
+        if len(self._frames) > self.max_frames:
+            self._frames.pop(0)
+
+    def as_sequence(self, current: torch.Tensor) -> torch.Tensor:
+        """Return (B, T, D) including current as the last step."""
+        if not self._frames:
+            return current.unsqueeze(1)
+        hist = torch.stack(self._frames, dim=1)
+        if hist.size(0) != current.size(0):
+            return current.unsqueeze(1)
+        return torch.cat([hist, current.unsqueeze(1)], dim=1)
+
+    def __len__(self):
+        return len(self._frames)
+
+
+class EnhancedMultimodalCompressor(nn.Module):
+    """Enhanced multimodal compressor with RD quantization and temporal coding.
+
+    See docs/architecture/NEURAL_COMPRESSION_RD_PLAN.md.
     """
 
     def __init__(
@@ -619,13 +661,19 @@ class EnhancedMultimodalCompressor(nn.Module):
         imu_dim=6,
         audio_dim=128 * 128,
         latent_dim=64,
+        history_len: int = 4,
+        keyframe_period: int = 8,
+        edge_fast: bool = False,
     ):
         super().__init__()
         channels, height, width = image_shape
         self.latent_dim = latent_dim
         self.fusion_dim = 256
+        self.history_len = history_len
+        self.keyframe_period = keyframe_period
+        self.edge_fast = edge_fast
+        self._frame_index = 0
 
-        # Enhanced VAE — latent_dim matches wire code width
         self.vae = EnhancedVAE(
             input_channels=channels,
             latent_dim=latent_dim,
@@ -665,27 +713,54 @@ class EnhancedMultimodalCompressor(nn.Module):
         )
 
         self.delta_compressor = DeltaCompressor(feature_dim=self.fusion_dim, delta_dim=128)
+
+        n_layers = 2 if edge_fast else 4
         self.temporal_transformer = TemporalTransformer(
-            d_model=self.fusion_dim, n_heads=8, n_layers=4
+            d_model=self.fusion_dim, n_heads=8, n_layers=n_layers
         )
         self.quality_controller = QualityController(feature_dim=self.fusion_dim)
 
-        # Registered projection: fused temporal features → latent (never built inside loss)
         self.temporal_to_latent = nn.Linear(self.fusion_dim, latent_dim)
-
-        # Fuse VAE mu with temporal latent into the transmitted code
         self.transmit_fuse = nn.Sequential(
             nn.Linear(latent_dim * 2, latent_dim),
             nn.ReLU(),
             nn.Linear(latent_dim, latent_dim),
         )
 
-        # Kept for checkpoint compatibility with older compression_head weights
         self.compression_head = nn.Sequential(
             nn.Linear(self.fusion_dim, 128),
             nn.ReLU(), nn.Dropout(0.1),
             nn.Linear(128, latent_dim),
         )
+
+        # --- Advanced RD path (wired from advanced_compression_models) ---
+        if _ADVANCED_AVAILABLE:
+            self.quantizer = NeuralQuantizer(num_levels=256)
+            self.entropy_coder = LearnedEntropyCoder(feature_dim=latent_dim, num_symbols=256)
+            self.attention_compressor = AttentionCompressor(
+                d_model=self.fusion_dim, n_heads=4 if edge_fast else 8, compression_ratio=0.5
+            )
+            self.multiscale = MultiScaleCompressor(
+                input_dim=self.fusion_dim, scales=[0.25, 0.5, 1.0]
+            )
+        else:
+            self.quantizer = None
+            self.entropy_coder = None
+            self.attention_compressor = None
+            self.multiscale = None
+
+        self._history = TemporalFrameBuffer(max_frames=history_len)
+
+    def reset_temporal_state(self):
+        self._history.reset()
+        self._frame_index = 0
+
+    def _scale_index(self, target_quality: float) -> int:
+        if target_quality > 0.8:
+            return 2
+        if target_quality > 0.5:
+            return 1
+        return 0
 
     def forward(
         self,
@@ -696,8 +771,10 @@ class EnhancedMultimodalCompressor(nn.Module):
         hidden_state=None,
         compression_level=0.8,
         target_quality=0.8,
+        edge_fast=None,
     ):
         batch_size = image.size(0)
+        fast = self.edge_fast if edge_fast is None else bool(edge_fast)
 
         img_feat = self.image_encoder(image).view(batch_size, -1)
         lidar_feat = self.lidar_encoder(lidar.view(batch_size, -1))
@@ -706,29 +783,72 @@ class EnhancedMultimodalCompressor(nn.Module):
 
         fused = self.fusion(img_feat, lidar_feat, imu_feat, audio_feat)
 
-        if hidden_state is not None:
+        # Seed history from external hidden_state when buffer empty
+        is_keyframe = (self._frame_index % self.keyframe_period) == 0 or len(self._history) == 0
+
+        if hidden_state is not None and len(self._history) == 0:
             prev = hidden_state
             if prev.dim() == 1:
                 prev = prev.unsqueeze(0)
-            if prev.size(-1) != fused.size(-1):
-                predicted = torch.zeros_like(fused)
+            if prev.size(-1) == fused.size(-1):
+                self._history.push(prev)
+
+        if (not is_keyframe) and len(self._history) > 0:
+            prev_feat = self._history._frames[-1]
+            if prev_feat.size(0) == fused.size(0) and prev_feat.size(-1) == fused.size(-1):
+                residual_feat, predicted = self.delta_compressor(fused, prev_feat)
+                fused_for_temporal = residual_feat
             else:
-                fused, predicted = self.delta_compressor(fused, prev)
+                predicted = torch.zeros_like(fused)
+                fused_for_temporal = fused
         else:
             predicted = torch.zeros_like(fused)
+            fused_for_temporal = fused
 
-        fused_seq = fused.unsqueeze(1)
-        temporal_out = self.temporal_transformer(fused_seq).squeeze(1)
+        # Multi-scale (skip on fast path)
+        if self.multiscale is not None and not fast:
+            scale_idx = self._scale_index(float(target_quality))
+            _, fused_ms = self.multiscale(fused_for_temporal, scale_idx)
+            fused_for_temporal = fused_ms
+
+        # Attention compress (skip on fast path)
+        if self.attention_compressor is not None and not fast:
+            attn_in = fused_for_temporal.unsqueeze(1)
+            _, attn_out, _ = self.attention_compressor(attn_in)
+            fused_for_temporal = attn_out.squeeze(1)
+
+        # Multi-frame temporal transformer
+        seq = self._history.as_sequence(fused_for_temporal)
+        if fast and seq.size(1) > 2:
+            seq = seq[:, -2:, :]
+        temporal_seq = self.temporal_transformer(seq)
+        temporal_out = temporal_seq[:, -1, :]
 
         adjusted_compression, predicted_quality = self.quality_controller(
             temporal_out, target_quality
         )
 
-        recon_img, mu, logvar = self.vae(image, target_scale=2)
+        # Progressive VAE scale: cheaper on fast path
+        vae_scale = 1 if fast else 2
+        recon_img, mu, logvar = self.vae(image, target_scale=vae_scale)
 
         temporal_latent = self.temporal_to_latent(temporal_out)
-        compressed = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
-        compressed = compressed * adjusted_compression
+        continuous = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
+        continuous = continuous * adjusted_compression
+
+        # STE quantization + entropy rate estimate
+        rate_bits = continuous.new_zeros(batch_size)
+        if self.quantizer is not None and self.entropy_coder is not None:
+            quantized = self.quantizer(torch.tanh(continuous))
+            entropy, _probs = self.entropy_coder(quantized)
+            rate_bits = entropy  # bits per sample (batch,)
+            compressed = quantized
+        else:
+            compressed = continuous
+
+        # Update history with pre-residual fused features (absolute state)
+        self._history.push(fused)
+        self._frame_index += 1
 
         return (
             compressed,
@@ -739,12 +859,63 @@ class EnhancedMultimodalCompressor(nn.Module):
             logvar,
             adjusted_compression,
             predicted_quality,
+            rate_bits,
+            continuous,
+            is_keyframe,
         )
 
 
 # ============================================================================
 # TRAINING UTILITIES
 # ============================================================================
+
+def compute_rd_loss(
+    recon_img,
+    image,
+    mu,
+    logvar,
+    compressed,
+    continuous,
+    temporal_out,
+    predicted_quality,
+    rate_bits,
+    target_quality=0.8,
+    beta=0.1,
+    lambda_rd=0.01,
+    temporal_to_latent=None,
+):
+    """Rate–distortion loss: D + λ R (+ light auxiliaries)."""
+    recon_loss = F.mse_loss(recon_img, image, reduction="mean")
+    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    distortion = recon_loss + beta * kl_loss
+
+    rate = rate_bits.mean() if rate_bits.numel() else continuous.new_tensor(0.0)
+
+    latent_consistency = F.mse_loss(continuous, mu)
+    if temporal_to_latent is not None:
+        temporal_consistency = F.mse_loss(
+            temporal_to_latent(temporal_out), continuous.detach()
+        )
+    else:
+        temporal_consistency = continuous.new_tensor(0.0)
+
+    quality_loss = F.mse_loss(
+        predicted_quality, torch.full_like(predicted_quality, target_quality)
+    )
+
+    total = distortion + lambda_rd * rate + 0.1 * latent_consistency + 0.05 * temporal_consistency + 0.05 * quality_loss
+
+    return total, {
+        "distortion": float(distortion.detach()),
+        "recon_loss": float(recon_loss.detach()),
+        "kl_loss": float(kl_loss.detach()),
+        "rate_bits": float(rate.detach()),
+        "lambda_rd": float(lambda_rd),
+        "latent_consistency": float(latent_consistency.detach()),
+        "quality_loss": float(quality_loss.detach()),
+        "total": float(total.detach()),
+    }
+
 
 def compute_enhanced_loss(
     recon_img,
@@ -757,41 +928,79 @@ def compute_enhanced_loss(
     target_quality=0.8,
     beta=0.1,
     temporal_to_latent=None,
+    rate_bits=None,
+    continuous=None,
+    lambda_rd=0.01,
 ):
-    """Enhanced loss — no ad-hoc Linear created inside the loss graph."""
+    """Backward-compatible wrapper; prefers RD objective when rate is available."""
+    cont = continuous if continuous is not None else compressed
+    if rate_bits is None:
+        rate_bits = cont.new_zeros(cont.size(0))
 
-    recon_loss = F.mse_loss(recon_img, image, reduction="sum")
-    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    vae_loss = recon_loss + beta * kl_loss
-
-    # Transmitted code should stay aligned with VAE mu (shared latent path)
-    latent_consistency = F.mse_loss(compressed, mu)
-
-    if temporal_to_latent is not None:
-        temporal_latent = temporal_to_latent(temporal_out)
-        temporal_consistency = F.mse_loss(temporal_latent, compressed.detach())
-    elif temporal_out.size(-1) == compressed.size(-1):
-        temporal_consistency = F.mse_loss(temporal_out, compressed.detach())
-    else:
-        temporal_consistency = compressed.new_tensor(0.0)
-
-    compression_loss = latent_consistency + 0.5 * temporal_consistency
-
-    quality_loss = F.mse_loss(
-        predicted_quality, torch.full_like(predicted_quality, target_quality)
+    total, metrics = compute_rd_loss(
+        recon_img=recon_img,
+        image=image,
+        mu=mu,
+        logvar=logvar,
+        compressed=compressed,
+        continuous=cont,
+        temporal_out=temporal_out,
+        predicted_quality=predicted_quality,
+        rate_bits=rate_bits,
+        target_quality=target_quality,
+        beta=beta,
+        lambda_rd=lambda_rd,
+        temporal_to_latent=temporal_to_latent,
     )
+    # Alias keys expected by older trainers
+    metrics["vae_loss"] = metrics["distortion"]
+    metrics["compression_loss"] = metrics["latent_consistency"]
+    metrics["rate_loss"] = metrics["rate_bits"] * lambda_rd
+    return total, metrics
 
-    # Placeholder rate until NeuralQuantizer entropy is wired
-    rate_loss = torch.mean(compressed.abs()) * 0.01
 
-    total_loss = vae_loss + compression_loss + quality_loss + rate_loss
-
-    return total_loss, {
-        "vae_loss": float(vae_loss.detach()),
-        "recon_loss": float(recon_loss.detach()),
-        "kl_loss": float(kl_loss.detach()),
-        "compression_loss": float(compression_loss.detach()),
-        "quality_loss": float(quality_loss.detach()),
-        "rate_loss": float(rate_loss.detach()),
-        "latent_consistency": float(latent_consistency.detach()),
+def unpack_compressor_output(out):
+    """Normalize compressor forward outputs across API versions."""
+    if isinstance(out, dict):
+        return out
+    if len(out) == 8:
+        compressed, temporal_out, predicted, recon_img, mu, logvar, adj, pq = out
+        return {
+            "compressed": compressed,
+            "temporal_out": temporal_out,
+            "predicted": predicted,
+            "recon_img": recon_img,
+            "mu": mu,
+            "logvar": logvar,
+            "adjusted_compression": adj,
+            "predicted_quality": pq,
+            "rate_bits": compressed.new_zeros(compressed.size(0)),
+            "continuous": compressed,
+            "is_keyframe": True,
+        }
+    (
+        compressed,
+        temporal_out,
+        predicted,
+        recon_img,
+        mu,
+        logvar,
+        adj,
+        pq,
+        rate_bits,
+        continuous,
+        is_keyframe,
+    ) = out
+    return {
+        "compressed": compressed,
+        "temporal_out": temporal_out,
+        "predicted": predicted,
+        "recon_img": recon_img,
+        "mu": mu,
+        "logvar": logvar,
+        "adjusted_compression": adj,
+        "predicted_quality": pq,
+        "rate_bits": rate_bits,
+        "continuous": continuous,
+        "is_keyframe": is_keyframe,
     }
