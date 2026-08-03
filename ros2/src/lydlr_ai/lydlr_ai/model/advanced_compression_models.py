@@ -22,52 +22,73 @@ import math
 
 
 class NeuralQuantizer(nn.Module):
-    """Learned quantization for compression"""
-    
+    """Learned quantization for compression (straight-through estimator)."""
+
     def __init__(self, num_levels=256):
         super().__init__()
         self.num_levels = num_levels
         self.quantization_centers = nn.Parameter(
             torch.linspace(-1, 1, num_levels)
         )
-    
+
     def forward(self, x):
         # Find nearest quantization center
-        x_flat = x.view(-1, 1)
+        x_flat = x.reshape(-1, 1)
         centers = self.quantization_centers.unsqueeze(0)
-        
+
         distances = torch.abs(x_flat - centers)
         indices = torch.argmin(distances, dim=1)
-        
+
         # Quantize
         quantized = self.quantization_centers[indices].view(x.shape)
-        
-        # Straight-through estimator
-        return x + (quantized - x).detach()
+
+        # Soft assignments for entropy (differentiable rate proxy)
+        # temperature keeps gradients flowing into the probability model
+        soft = torch.softmax(-distances * 10.0, dim=1)  # (N, num_levels)
+
+        # Straight-through estimator for the value path
+        ste = x + (quantized - x).detach()
+        return ste, indices.view(x.shape), soft
 
 
 class LearnedEntropyCoder(nn.Module):
-    """Learned entropy coding for better compression"""
-    
+    """Learned entropy model over quantization symbols (bits)."""
+
     def __init__(self, feature_dim=256, num_symbols=256):
         super().__init__()
         self.num_symbols = num_symbols
-        
-        # Probability model
+
+        # Context → symbol logits (factorized entropy model)
         self.probability_model = nn.Sequential(
             nn.Linear(feature_dim, 512),
             nn.ReLU(),
             nn.Linear(512, num_symbols),
-            nn.Softmax(dim=-1)
         )
-    
-    def forward(self, features):
-        # Predict symbol probabilities
-        probs = self.probability_model(features)
-        
-        # Calculate entropy (bits)
-        entropy = -torch.sum(probs * torch.log2(probs + 1e-10), dim=-1)
-        
+
+    def forward(self, features, soft_assignments=None):
+        """
+        Args:
+            features: (batch, feature_dim) continuous context
+            soft_assignments: optional (batch * dim, num_symbols) from quantizer
+        Returns:
+            entropy: (batch,) estimated bits for the latent vector
+            probs: (batch, num_symbols)
+        """
+        logits = self.probability_model(features)
+        probs = torch.softmax(logits, dim=-1)
+
+        if soft_assignments is not None:
+            # Cross-entropy rate: E[-log p(symbol)] under soft symbol mass
+            log_p = torch.log(probs.clamp_min(1e-10))  # (B, S)
+            b = features.size(0)
+            s = soft_assignments.size(-1)
+            soft = soft_assignments.view(b, -1, s)
+            nll = -(soft * log_p.unsqueeze(1)).sum(dim=-1)  # (B, D) nats
+            entropy = nll.sum(dim=-1) / math.log(2.0)  # bits over latent dims
+        else:
+            # Prior entropy of the predicted categorical
+            entropy = -torch.sum(probs * torch.log2(probs.clamp_min(1e-10)), dim=-1)
+
         return entropy, probs
 
 
@@ -198,11 +219,9 @@ class RevolutionaryCompressor(nn.Module):
         # Final compression
         compressed = self.final_encoder(ms_decoded)
         
-        # Quantization
-        compressed = self.quantizer(compressed)
-        
-        # Entropy estimation
-        entropy, probs = self.entropy_coder(compressed.mean(dim=1))
+        # Quantization + entropy
+        compressed, _idx, soft = self.quantizer(torch.tanh(compressed))
+        entropy, probs = self.entropy_coder(compressed.mean(dim=1), soft_assignments=soft)
         
         # Decompression
         decompressed = self.final_decoder(compressed)

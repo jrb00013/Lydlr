@@ -828,9 +828,8 @@ class EnhancedMultimodalCompressor(nn.Module):
             temporal_out, target_quality
         )
 
-        # Progressive VAE scale: cheaper on fast path
-        vae_scale = 1 if fast else 2
-        recon_img, mu, logvar = self.vae(image, target_scale=vae_scale)
+        # Always decode full RGB for distortion; edge_fast only skips attention/scales
+        recon_img, mu, logvar = self.vae(image, target_scale=2)
 
         temporal_latent = self.temporal_to_latent(temporal_out)
         continuous = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
@@ -839,8 +838,8 @@ class EnhancedMultimodalCompressor(nn.Module):
         # STE quantization + entropy rate estimate
         rate_bits = continuous.new_zeros(batch_size)
         if self.quantizer is not None and self.entropy_coder is not None:
-            quantized = self.quantizer(torch.tanh(continuous))
-            entropy, _probs = self.entropy_coder(quantized)
+            quantized, _idx, soft = self.quantizer(torch.tanh(continuous))
+            entropy, _probs = self.entropy_coder(quantized, soft_assignments=soft)
             rate_bits = entropy  # bits per sample (batch,)
             compressed = quantized
         else:
