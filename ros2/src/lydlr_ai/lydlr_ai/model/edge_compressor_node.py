@@ -132,7 +132,14 @@ class ModelRegistry:
                 
                 # Initialize model architecture
                 model = EnhancedMultimodalCompressor().to(self.device)
-                model.load_state_dict(checkpoint['model_state_dict'])
+                missing, unexpected = model.load_state_dict(
+                    checkpoint['model_state_dict'], strict=False
+                )
+                if missing or unexpected:
+                    print(
+                        f"Loaded v{version} with strict=False "
+                        f"(missing={len(missing)}, unexpected={len(unexpected)})"
+                    )
                 model.eval()
                 
                 self.current_model = model
