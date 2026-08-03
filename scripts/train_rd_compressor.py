@@ -222,6 +222,9 @@ def train(args: argparse.Namespace) -> Path:
                     lambda_rd=lambda_rd,
                     temporal_to_latent=model.temporal_to_latent,
                 )
+                if not torch.isfinite(loss):
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -236,6 +239,9 @@ def train(args: argparse.Namespace) -> Path:
             avg_step["phi_residual"] = sum(phi_vals) / max(len(phi_vals), 1) if phi_vals else 0.0
             epoch_metrics.append(avg_step)
 
+        if not epoch_metrics:
+            print(f"epoch {epoch+1}/{epochs}  SKIPPED (no finite steps)", flush=True)
+            continue
         avg = {
             k: sum(m[k] for m in epoch_metrics) / len(epoch_metrics)
             for k in epoch_metrics[0]
@@ -253,6 +259,8 @@ def train(args: argparse.Namespace) -> Path:
             f"D={avg['distortion']:.4f}  R={avg['rate_bits']:.3f}  "
             f"L={avg['total']:.4f}  λ={lambda_rd:.4f}  "
             f"φ={avg.get('phi_residual', 0):.3f}  "
+            f"Drec={avg.get('recon_loss', 0):.4f}  "
+            f"KL={avg.get('kl_loss', 0):.3f}  "
             f"{avg['sec_per_step']:.2f}s/step  "
             f"elapsed={elapsed/60:.1f}m  eta={eta/60:.1f}m",
             flush=True,

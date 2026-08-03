@@ -103,6 +103,9 @@ class EnhancedVAE(nn.Module):
         features = features.view(features.size(0), -1)
         mu = self.fc_mu(features)
         logvar = self.fc_logvar(features)
+        # Bound log-variance so KL stays finite (RD_STABILITY_APPLIED_MATH.md)
+        logvar = torch.clamp(logvar, -8.0, 8.0)
+        mu = torch.clamp(mu, -10.0, 10.0)
         return mu, logvar
     
     def reparameterize(self, mu, logvar):
@@ -882,15 +885,38 @@ def compute_rd_loss(
     beta=0.1,
     lambda_rd=0.01,
     temporal_to_latent=None,
+    logvar_min=-8.0,
+    logvar_max=8.0,
+    kl_max=20.0,
+    codebook_levels=256,
 ):
-    """Rate–distortion loss: D + λ R (+ light auxiliaries)."""
-    recon_loss = F.mse_loss(recon_img, image, reduction="mean")
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    distortion = recon_loss + beta * kl_loss
+    """Rate–distortion loss: D_rec + β·KL_clipped + λ R (+ light auxiliaries).
+
+    See docs/architecture/RD_STABILITY_APPLIED_MATH.md — unbounded log-variance
+    made 'distortion' spike to ~10^3 while MSE stayed small; we temper KL.
+    """
+    # Match spatial size if progressive decode drifted
+    if recon_img.shape[-2:] != image.shape[-2:]:
+        recon_img = F.interpolate(
+            recon_img, size=image.shape[-2:], mode="bilinear", align_corners=False
+        )
+    if recon_img.size(1) != image.size(1):
+        # Refuse channel mismatch contributing nonsense MSE
+        recon_img = recon_img[:, : image.size(1)].clamp(0, 1)
+
+    recon_loss = F.mse_loss(recon_img.clamp(0, 1), image.clamp(0, 1), reduction="mean")
+
+    # Bound latent parameterization (description symmetry / finite KL)
+    logvar_c = torch.clamp(logvar, logvar_min, logvar_max)
+    mu_c = torch.clamp(mu, -10.0, 10.0)
+    kl_raw = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
+    kl_loss = torch.clamp(kl_raw, 0.0, kl_max)
 
     rate = rate_bits.mean() if rate_bits.numel() else continuous.new_tensor(0.0)
+    r_max = float(mu.shape[-1]) * math.log2(max(codebook_levels, 2))
+    rate_norm = rate / max(r_max, 1.0)
 
-    latent_consistency = F.mse_loss(continuous, mu)
+    latent_consistency = F.mse_loss(continuous, mu_c)
     if temporal_to_latent is not None:
         temporal_consistency = F.mse_loss(
             temporal_to_latent(temporal_out), continuous.detach()
@@ -902,17 +928,31 @@ def compute_rd_loss(
         predicted_quality, torch.full_like(predicted_quality, target_quality)
     )
 
-    total = distortion + lambda_rd * rate + 0.1 * latent_consistency + 0.05 * temporal_consistency + 0.05 * quality_loss
+    distortion = recon_loss + beta * kl_loss
+    total = (
+        distortion
+        + lambda_rd * rate
+        + 0.1 * latent_consistency
+        + 0.05 * temporal_consistency
+        + 0.05 * quality_loss
+    )
+
+    if not torch.isfinite(total):
+        total = recon_loss.detach() * 0.0  # zero contrib; caller should skip step
 
     return total, {
         "distortion": float(distortion.detach()),
         "recon_loss": float(recon_loss.detach()),
         "kl_loss": float(kl_loss.detach()),
+        "kl_raw": float(kl_raw.detach()),
+        "kl_capped": 1.0 if float(kl_raw.detach()) > kl_max else 0.0,
         "rate_bits": float(rate.detach()),
+        "rate_norm": float(rate_norm.detach()),
+        "r_max": float(r_max),
         "lambda_rd": float(lambda_rd),
         "latent_consistency": float(latent_consistency.detach()),
         "quality_loss": float(quality_loss.detach()),
-        "total": float(total.detach()),
+        "total": float(total.detach()) if torch.isfinite(total) else float("nan"),
     }
 
 

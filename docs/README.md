@@ -9,6 +9,7 @@ This directory contains all documentation for the Lydlr Revolutionary Compressio
 - **[DESIGN_WALKTHROUGH.md](architecture/DESIGN_WALKTHROUGH.md)** - Detailed design walkthrough
 - **[NEURAL_COMPRESSION_RD_PLAN.md](architecture/NEURAL_COMPRESSION_RD_PLAN.md)** - Rate–distortion design + implementation plan
 - **[TRAINING_DATA_APPLIED_MATH.md](architecture/TRAINING_DATA_APPLIED_MATH.md)** - Why noise failed; structured synthetic data invariants
+- **[RD_STABILITY_APPLIED_MATH.md](architecture/RD_STABILITY_APPLIED_MATH.md)** - Why D spiked; bounded KL / dimensionless rate
 - **[DATA_LAYER.md](architecture/DATA_LAYER.md)** - Data layer
 - **[REALTIME_EDGE_PATH.md](architecture/REALTIME_EDGE_PATH.md)** - Realtime edge path
 - **[ROS2_COMMUNICATION.md](architecture/ROS2_COMMUNICATION.md)** - ROS2 communication
