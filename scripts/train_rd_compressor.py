@@ -120,14 +120,14 @@ def save_checkpoint(
     }
     meta_path.write_text(json.dumps(meta, indent=2))
     (out_dir / "FULL_TRAIN_STATUS.json").write_text(json.dumps(meta, indent=2))
-    print(f"saved {ckpt_path}")
-    print(f"saved {latest} (resume pointer)")
+    print(f"saved {ckpt_path}", flush=True)
+    print(f"saved {latest} (resume pointer)", flush=True)
     return ckpt_path
 
 
 def train(args: argparse.Namespace) -> Path:
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    print(f"device={device}" + (f" ({torch.cuda.get_device_name(0)})" if device.type == "cuda" else ""))
+    print(f"device={device}" + (f" ({torch.cuda.get_device_name(0)})" if device.type == "cuda" else ""), flush=True)
 
     model = EnhancedMultimodalCompressor(
         history_len=args.history_len,
@@ -242,7 +242,8 @@ def train(args: argparse.Namespace) -> Path:
             f"D={avg['distortion']:.4f}  R={avg['rate_bits']:.3f}  "
             f"L={avg['total']:.4f}  λ={lambda_rd:.4f}  "
             f"{avg['sec_per_step']:.2f}s/step  "
-            f"elapsed={elapsed/60:.1f}m  eta={eta/60:.1f}m"
+            f"elapsed={elapsed/60:.1f}m  eta={eta/60:.1f}m",
+            flush=True,
         )
 
         if args.save_every and ((epoch + 1) % args.save_every == 0 or epoch + 1 == epochs):
@@ -302,7 +303,7 @@ def main():
         args.steps = cfg["steps"]
         args.seq_len = cfg["seq_len"]
         args.lambda_rd = cfg["lambda_rd"]
-        print(f"preset={args.preset} -> epochs={args.epochs} steps={args.steps} seq_len={args.seq_len}")
+        print(f"preset={args.preset} -> epochs={args.epochs} steps={args.steps} seq_len={args.seq_len}", flush=True)
 
     train(args)
 
