@@ -7,6 +7,10 @@ This directory contains all documentation for the Lydlr Revolutionary Compressio
 ### Architecture
 - **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - System architecture overview
 - **[DESIGN_WALKTHROUGH.md](architecture/DESIGN_WALKTHROUGH.md)** - Detailed design walkthrough
+- **[NEURAL_COMPRESSION_RD_PLAN.md](architecture/NEURAL_COMPRESSION_RD_PLAN.md)** - Rate–distortion design + implementation plan
+- **[DATA_LAYER.md](architecture/DATA_LAYER.md)** - Data layer
+- **[REALTIME_EDGE_PATH.md](architecture/REALTIME_EDGE_PATH.md)** - Realtime edge path
+- **[ROS2_COMMUNICATION.md](architecture/ROS2_COMMUNICATION.md)** - ROS2 communication
 
 ### Deployment
 - **[DOCKER_DEPLOYMENT_GUIDE.md](deployment/DOCKER_DEPLOYMENT_GUIDE.md)** - Docker deployment instructions

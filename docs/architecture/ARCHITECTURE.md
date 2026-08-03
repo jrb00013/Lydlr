@@ -11,6 +11,8 @@ Lydlr is a revolutionary real-time multimodal compression system that deploys AI
 - **Synthetic data training** pipeline
 - **Adaptive bandwidth management**
 
+**Rate–distortion design:** see [NEURAL_COMPRESSION_RD_PLAN.md](NEURAL_COMPRESSION_RD_PLAN.md) for the applied-math framing, surgical implementation map, and eval/training entrypoints (`scripts/train_rd_compressor.py`, `scripts/eval_compression_rd.py`).
+
 ---
 
 ##  System Architecture
