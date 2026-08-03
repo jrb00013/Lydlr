@@ -63,7 +63,7 @@ try:
 except ImportError:
     psutil = None
 
-from lydlr_ai.model.compressor import EnhancedMultimodalCompressor
+from lydlr_ai.model.compressor import EnhancedMultimodalCompressor, unpack_compressor_output
 from lydlr_ai.utils.metrics_reporter import report_metrics
 from lydlr_ai.utils.preview_reporter import report_preview
 from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
@@ -737,14 +737,33 @@ class EdgeCompressorNode(Node):
                 if audio is None:
                     audio = torch.zeros(1, 128 * 128)
                 
-                # Compress
+                # Compress (supports legacy 8-tuple and RD 11-tuple outputs)
                 with torch.no_grad():
-                    (compressed, temporal_out, predicted, recon_img, mu, logvar,
-                     adjusted_compression, predicted_quality) = self.multimodal_compressor(
-                        image, lidar, imu, audio, self.hidden_state,
-                        compression_level=self.bandwidth_estimate,
-                        target_quality=0.8
+                    cpu_load = 0.0
+                    if psutil is not None:
+                        try:
+                            cpu_load = float(psutil.cpu_percent(interval=None)) / 100.0
+                        except Exception:
+                            cpu_load = 0.0
+                    edge_fast = cpu_load > 0.75 or float(self.bandwidth_estimate) < 0.35
+
+                    packed = unpack_compressor_output(
+                        self.multimodal_compressor(
+                            image,
+                            lidar,
+                            imu,
+                            audio,
+                            self.hidden_state,
+                            compression_level=self.bandwidth_estimate,
+                            target_quality=0.8,
+                            edge_fast=edge_fast,
+                        )
                     )
+                    compressed = packed["compressed"]
+                    temporal_out = packed["temporal_out"]
+                    recon_img = packed["recon_img"]
+                    predicted_quality = packed["predicted_quality"]
+                    rate_bits = packed["rate_bits"]
                     self.hidden_state = temporal_out
 
                     quality_val = float(predicted_quality.item())
