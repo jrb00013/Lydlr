@@ -44,9 +44,141 @@ function inventDemoMetric(t, nodeId = 'node_0') {
   };
 }
 
-/**
- * Full-bleed canvas ocean of multimodal signals compressed into an uplink.
- */
+/* ------------------------------------------------------------------ */
+/* simplex noise + fbm                                                  */
+/* ------------------------------------------------------------------ */
+function makeSimplex(seed = 20260803) {
+  const perm = new Uint8Array(512);
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i += 1) p[i] = i;
+  let s = seed;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  for (let i = 255; i > 0; i -= 1) {
+    const j = Math.floor(rnd() * (i + 1));
+    const tmp = p[i];
+    p[i] = p[j];
+    p[j] = tmp;
+  }
+  for (let i = 0; i < 512; i += 1) perm[i] = p[i & 255];
+
+  const F2 = 0.5 * (Math.sqrt(3) - 1);
+  const G2 = (3 - Math.sqrt(3)) / 6;
+  const grad = (h, x, y) => {
+    const g = h & 7;
+    const u = g < 4 ? x : y;
+    const v = g < 4 ? y : x;
+    return ((g & 1) ? -u : u) + ((g & 2) ? -2 * v : 2 * v);
+  };
+
+  const noise = (xin, yin) => {
+    let n0 = 0;
+    let n1 = 0;
+    let n2 = 0;
+    const s2 = (xin + yin) * F2;
+    const i = Math.floor(xin + s2);
+    const j = Math.floor(yin + s2);
+    const t = (i + j) * G2;
+    const x0 = xin - (i - t);
+    const y0 = yin - (j - t);
+    const i1 = x0 > y0 ? 1 : 0;
+    const j1 = x0 > y0 ? 0 : 1;
+    const x1 = x0 - i1 + G2;
+    const y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2 * G2;
+    const y2 = y0 - 1 + 2 * G2;
+    const ii = i & 255;
+    const jj = j & 255;
+    let t0 = 0.5 - x0 * x0 - y0 * y0;
+    if (t0 > 0) {
+      t0 *= t0;
+      n0 = t0 * t0 * grad(perm[ii + perm[jj]], x0, y0);
+    }
+    let t1 = 0.5 - x1 * x1 - y1 * y1;
+    if (t1 > 0) {
+      t1 *= t1;
+      n1 = t1 * t1 * grad(perm[ii + i1 + perm[jj + j1]], x1, y1);
+    }
+    let t2 = 0.5 - x2 * x2 - y2 * y2;
+    if (t2 > 0) {
+      t2 *= t2;
+      n2 = t2 * t2 * grad(perm[ii + 1 + perm[jj + 1]], x2, y2);
+    }
+    return 70 * (n0 + n1 + n2);
+  };
+  return noise;
+}
+
+const simplex = makeSimplex(20260803);
+
+function fbm(x, y, oct = 3) {
+  let v = 0;
+  let a = 0.5;
+  let f = 1;
+  for (let i = 0; i < oct; i += 1) {
+    v += a * simplex(x * f, y * f);
+    a *= 0.5;
+    f *= 2;
+  }
+  return v;
+}
+
+function mixRgb(a, b, t) {
+  return {
+    r: Math.round(lerp(a.r, b.r, t)),
+    g: Math.round(lerp(a.g, b.g, t)),
+    b: Math.round(lerp(a.b, b.b, t)),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* precomputed normalized scenery                                       */
+/* ------------------------------------------------------------------ */
+const STARS = Array.from({ length: 150 }, () => ({
+  x: Math.random(),
+  y: Math.random() * 0.34,
+  r: 0.3 + Math.random() * 0.9,
+  ph: Math.random() * Math.PI * 2,
+  sp: 0.4 + Math.random() * 1.6,
+}));
+
+const GLINTS = Array.from({ length: 120 }, () => ({
+  x: Math.random(),
+  ph: Math.random() * Math.PI * 2,
+  sp: 0.6 + Math.random() * 2.2,
+}));
+
+const CAUSTIC_NODES = (() => {
+  const cols = 16;
+  const rows = 6;
+  const arr = [];
+  for (let j = 0; j <= rows; j += 1) {
+    for (let i = 0; i <= cols; i += 1) {
+      arr.push({ u: i / cols, v: 0.68 + (j / rows) * 0.32 });
+    }
+  }
+  return arr;
+})();
+
+const CAUSTIC_EDGES = (() => {
+  const cols = 16;
+  const rows = 6;
+  const edges = [];
+  for (let j = 0; j <= rows; j += 1) {
+    for (let i = 0; i <= cols; i += 1) {
+      const idx = j * (cols + 1) + i;
+      if (i < cols) edges.push([idx, idx + 1]);
+      if (j < rows) edges.push([idx, idx + (cols + 1)]);
+    }
+  }
+  return edges;
+})();
+
+/* ------------------------------------------------------------------ */
+/* the ocean                                                            */
+/* ------------------------------------------------------------------ */
 function SignalOcean({
   metric,
   fleetMetrics = [],
@@ -63,15 +195,20 @@ function SignalOcean({
   const rafRef = useRef(0);
   const [hoveredMod, setHoveredMod] = useState(null);
   const [usingDemo, setUsingDemo] = useState(false);
-  const pointerRef = useRef({ x: 0.5, y: 0.5, active: false });
+  const pointerRef = useRef({ x: 0.5, y: 0.5, glowUntil: 0 });
   const lastMetricAt = useRef(0);
 
   const stateRef = useRef({
     t: 0,
-    particles: [],
-    ripples: [],
-    vortices: [],
-    foam: [],
+    fish: [],
+    plankton: [],
+    sparks: [],
+    pings: [],
+    rain: [],
+    flow: null,
+    flash: 0,
+    lx: 0,
+    ly: 0,
     _demoLatched: false,
     target: inventDemoMetric(0),
     smooth: inventDemoMetric(0),
@@ -128,7 +265,7 @@ function SignalOcean({
     applyMetric(metric, linkHealth, selectedNode);
   }, [metric, linkHealth, selectedNode, applyMetric]);
 
-  const spawnParticle = useCallback((w, h, modalities, spawnRate, wakeY) => {
+  const spawnFish = useCallback((w, h, modalities, rate) => {
     const r = Math.random();
     let acc = 0;
     let mod = 'camera';
@@ -140,16 +277,16 @@ function SignalOcean({
       }
     }
     const layer = MODALITY_ORDER.indexOf(mod);
-    const baseY = wakeY != null ? wakeY : h * (0.18 + layer * 0.15);
     return {
-      x: -12 - Math.random() * 60,
-      y: baseY + (Math.random() - 0.5) * h * 0.07,
-      vx: 1.1 + Math.random() * 2.2 * spawnRate,
-      vy: (Math.random() - 0.5) * 0.55,
-      life: 1,
+      x: -20 - Math.random() * 90,
+      y: h * (0.32 + layer * 0.15) + (Math.random() - 0.5) * h * 0.1,
+      vx: 0.6 + Math.random() * 0.9,
+      vy: (Math.random() - 0.5) * 0.3,
       mod,
-      size: 1.2 + Math.random() * 3.2,
-      trail: Math.random() > 0.7,
+      size: 2 + Math.random() * 3.4,
+      tail: Math.random() * Math.PI * 2,
+      flick: Math.random() * Math.PI * 2,
+      surge: 0,
     };
   }, []);
 
@@ -169,28 +306,90 @@ function SignalOcean({
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      s.flow = null;
     };
     resize();
     window.addEventListener('resize', resize);
 
-    // seed vortices (compression eddies)
-    if (!s.vortices.length) {
-      for (let i = 0; i < 3; i += 1) {
-        s.vortices.push({
-          x: 0.45 + i * 0.12,
-          y: 0.35 + (i % 2) * 0.2,
-          r: 0.04 + Math.random() * 0.03,
-          spin: (Math.random() > 0.5 ? 1 : -1) * (0.8 + Math.random()),
-        });
+    const buildFlow = (w, h) => {
+      const cols = Math.max(4, Math.floor(w / 56));
+      const rows = Math.max(4, Math.floor(h / 56));
+      const arr = new Float32Array(cols * rows);
+      s.flow = { cols, rows, arr };
+      for (let j = 0; j < rows; j += 1) {
+        for (let i = 0; i < cols; i += 1) {
+          const cx = (i + 0.5) / cols;
+          const cy = (j + 0.5) / rows;
+          arr[j * cols + i] = fbm(cx * 1.4, cy * 1.4) * Math.PI * 1.6;
+        }
       }
-    }
+    };
+
+    const flowAt = (x, y, w, h) => {
+      const f = s.flow;
+      if (!f) return 0;
+      const gx = clamp(x / w, 0, 0.999) * f.cols;
+      const gy = clamp(y / h, 0, 0.999) * f.rows;
+      const i0 = Math.floor(gx);
+      const j0 = Math.floor(gy);
+      const i1 = Math.min(i0 + 1, f.cols - 1);
+      const j1 = Math.min(j0 + 1, f.rows - 1);
+      const fx = gx - i0;
+      const fy = gy - j0;
+      const a = f.arr[j0 * f.cols + i0];
+      const b = f.arr[j0 * f.cols + i1];
+      const c = f.arr[j1 * f.cols + i0];
+      const d = f.arr[j1 * f.cols + i1];
+      const top = a + (b - a) * fx;
+      const bot = c + (d - c) * fx;
+      return top + (bot - top) * fy;
+    };
+
+    const drawFish = (fish, c, dim) => {
+      const sp = Math.min(7, Math.hypot(fish.vx, fish.vy) + 0.5);
+      const ang = Math.atan2(fish.vy, fish.vx);
+      const wig = Math.sin(s.t * 9 + fish.tail);
+      ctx.save();
+      ctx.translate(fish.x, fish.y);
+      ctx.rotate(ang);
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(1, fish.size * 0.28);
+      ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${0.55 * dim})`;
+      ctx.beginPath();
+      ctx.moveTo(-fish.size * 0.9, 0);
+      ctx.quadraticCurveTo(
+        -fish.size * 1.2,
+        -fish.size * 0.8 * (1 + wig * 0.4),
+        -fish.size * 1.7,
+        -fish.size * 0.9 * wig
+      );
+      ctx.moveTo(-fish.size * 0.9, 0);
+      ctx.quadraticCurveTo(
+        -fish.size * 1.2,
+        fish.size * 0.8 * (1 + wig * 0.4),
+        -fish.size * 1.7,
+        fish.size * 0.9 * wig
+      );
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(fish.size * 1.15, 0);
+      ctx.quadraticCurveTo(0, fish.size * 0.62, -fish.size * 0.9, 0);
+      ctx.quadraticCurveTo(0, -fish.size * 0.62, fish.size * 1.15, 0);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${(0.5 + 0.22 * Math.sin(s.t * 6 + fish.flick)) * dim})`;
+      ctx.fill();
+      ctx.fillStyle = `rgba(248,250,252,${0.5 * dim})`;
+      ctx.beginPath();
+      ctx.arc(fish.size * 0.55, 0, Math.max(0.8, fish.size * 0.14), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
 
     const tick = () => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = canvas.clientWidth || 1;
+      const h = canvas.clientHeight || 1;
       s.t += 0.016;
 
-      // demo fallback if no live metric recently
       if (demoFallback && performance.now() - lastMetricAt.current > 2500) {
         if (!s._demoLatched) {
           s._demoLatched = true;
@@ -230,263 +429,543 @@ function SignalOcean({
       });
 
       const compressionNorm = clamp(sm.compression / 14, 0.04, 1);
-      const funnelStart = w * 0.4;
-      const funnelEnd = w * 0.8;
-      const horizonX = w * (0.86 - Math.min(sm.budgetFill, 1) * 0.05);
       const spawnRate = clamp(Math.log10(sm.bytesIn + 10) / 3.8, 0.35, 2.6);
       const chop = clamp(sm.latency / 70, 0, 2.8);
+      const storm = clamp(sm.latency / 240, 0, 1);
+      const fog = clamp(sm.latency / 280, 0, 0.9);
       const spray = clamp(1 - sm.quality, 0, 1);
-      const ptr = pointerRef.current;
+      const q = clamp(sm.quality, 0, 1);
+      const focus = hoveredMod;
 
-      // night ocean gradient
-      const g = ctx.createLinearGradient(0, 0, w * 0.2, h);
-      g.addColorStop(0, '#050914');
-      g.addColorStop(0.45, '#0a1628');
-      g.addColorStop(0.78, '#071820');
-      g.addColorStop(1, '#040c14');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
+      const horizonY = h * 0.3;
+      const funnelStart = w * 0.42;
+      const mx = w * 0.8;
+      const my = h * 0.52;
+      const maelR = Math.min(w, h) * (0.18 + 0.26 * compressionNorm);
 
-      // distant fleet wakes (secondary nodes)
-      const wakes = (fleetMetrics || []).slice(0, 4);
-      wakes.forEach((fm, wi) => {
-        if (!fm || fm.node_id === selectedNode) return;
-        const wy = h * (0.25 + wi * 0.12);
-        ctx.beginPath();
-        for (let x = 0; x < funnelStart * 0.7; x += 8) {
-          const y = wy + Math.sin(x * 0.02 + s.t + wi) * 6;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = 'rgba(148,163,184,0.18)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+      if (!s.flow) buildFlow(w, h);
+      const f = s.flow;
+
+      /* ---- sky ------------------------------------------------------ */
+      const glowHi = { r: 34, g: 211, b: 238 };
+      const glowLo = { r: 245, g: 158, b: 11 };
+      const glowT = clamp((1 - q) * 0.85 + storm * 0.2, 0, 1);
+      const glow = mixRgb(glowHi, glowLo, glowT);
+      const skyG = ctx.createLinearGradient(0, 0, 0, horizonY);
+      skyG.addColorStop(0, '#01030a');
+      skyG.addColorStop(0.6, '#060d1e');
+      skyG.addColorStop(1, `rgb(${glow.r * 0.35 | 0},${glow.g * 0.5 | 0},${glow.b * 0.6 | 0})`);
+      ctx.fillStyle = skyG;
+      ctx.fillRect(0, 0, w, horizonY);
+
+      STARS.forEach((st) => {
+        const tw = 0.5 + 0.5 * Math.sin(s.t * st.sp + st.ph);
+        const sy = st.y * horizonY;
+        ctx.fillStyle = `rgba(226,232,240,${(0.08 + tw * 0.5) * (1 - storm * 0.55)})`;
+        ctx.fillRect(st.x * w, sy, st.r, st.r);
       });
 
-      // layered modality seas
+      const moonX = w * 0.76;
+      const moonY = h * 0.1;
+      const mr = Math.min(w, h) * 0.05;
+      const moonB = 0.35 + q * 0.65;
+      ctx.globalCompositeOperation = 'lighter';
+      const moonHalo = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, mr * 6);
+      moonHalo.addColorStop(0, `rgba(190,230,255,${0.28 * moonB})`);
+      moonHalo.addColorStop(1, 'rgba(190,230,255,0)');
+      ctx.fillStyle = moonHalo;
+      ctx.fillRect(moonX - mr * 6, moonY - mr * 6, mr * 12, mr * 12);
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, mr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(232,244,255,${0.85 * moonB})`;
+      ctx.fill();
+      const moonPath = ctx.createLinearGradient(0, horizonY, 0, h * 0.62);
+      moonPath.addColorStop(0, `rgba(190,225,255,${0.2 * moonB})`);
+      moonPath.addColorStop(1, 'rgba(190,225,255,0)');
+      ctx.fillStyle = moonPath;
+      ctx.fillRect(moonX - mr, horizonY, mr * 2, h * 0.62 - horizonY);
+      ctx.globalCompositeOperation = 'source-over';
+
+      /* ---- sea depth ------------------------------------------------- */
+      const seaG = ctx.createLinearGradient(0, horizonY, 0, h);
+      seaG.addColorStop(0, '#0e2c42');
+      seaG.addColorStop(0.4, '#0a1e35');
+      seaG.addColorStop(0.75, '#061224');
+      seaG.addColorStop(1, '#030a18');
+      ctx.fillStyle = seaG;
+      ctx.fillRect(0, horizonY, w, h - horizonY);
+
+      /* depth fog from latency */
+      const fogG = ctx.createLinearGradient(0, horizonY, 0, h);
+      fogG.addColorStop(0, 'rgba(2,8,16,0)');
+      fogG.addColorStop(1, `rgba(2,8,16,${0.55 * fog})`);
+      ctx.fillStyle = fogG;
+      ctx.fillRect(0, horizonY, w, h - horizonY);
+
+      /* ---- spectral tide strata ------------------------------------- */
       MODALITY_ORDER.forEach((mod, i) => {
         const c = MODALITY_COLORS[mod];
         const weight = sm.modalities[mod] || 0;
-        const highlight = hoveredMod === mod ? 1.35 : 1;
-        const amp = (0.014 + weight * 0.055) * h * (1 + spray * 0.9) * highlight;
-        const baseY = h * (0.2 + i * 0.135);
-        const alpha = (0.07 + weight * 0.28) * (hoveredMod && hoveredMod !== mod ? 0.35 : 1);
-
+        if (weight < 0.02 && !focus) return;
+        const rise = ((s.t * 2.6 + i * 47) % 90);
+        const bandY = horizonY + (h - horizonY) * (0.14 + i * 0.16) - rise;
+        const bandH = (h - horizonY) * 0.13;
+        const alpha =
+          (0.04 + weight * 0.1) * (focus && focus !== mod ? 0.35 : 1);
         ctx.beginPath();
         ctx.moveTo(0, h);
-        for (let x = 0; x <= funnelStart + 8; x += 5) {
-          const swell =
-            Math.sin(x * 0.011 + s.t * (1.15 + i * 0.18) + i * 1.1) * amp +
-            Math.sin(x * 0.037 + s.t * 2.4 + chop * i) * amp * 0.4 * chop +
-            Math.sin(x * 0.08 + s.t * 0.7) * amp * 0.15;
-          const y = baseY + swell;
-          ctx.lineTo(x, y);
+        for (let x = 0; x <= w; x += 10) {
+          const wob =
+            fbm(x * 0.003 + s.t * 0.05, i * 2) * 9 *
+            (1 + chop * 0.6);
+          ctx.lineTo(x, bandY + wob);
         }
-        ctx.lineTo(funnelStart, h);
+        ctx.lineTo(w, h);
         ctx.closePath();
         ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${alpha})`;
         ctx.fill();
-
-        ctx.beginPath();
-        for (let x = 0; x <= funnelStart; x += 3) {
-          const swell =
-            Math.sin(x * 0.011 + s.t * (1.15 + i * 0.18) + i) * amp +
-            Math.sin(x * 0.037 + s.t * 2.4) * amp * 0.35 * chop;
-          const y = baseY + swell;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${0.3 + weight * 0.5})`;
-        ctx.lineWidth = hoveredMod === mod ? 2.4 : 1.4;
-        ctx.stroke();
       });
 
-      // compression funnel with breathing walls
-      const breathe = 1 + Math.sin(s.t * 2.2) * 0.04 * compressionNorm;
-      const narrow = lerp(0.3, 0.05, compressionNorm) * breathe;
-      const topOpen = h * 0.14;
-      const botOpen = h * 0.86;
-      const topClose = h * (0.5 - narrow);
-      const botClose = h * (0.5 + narrow);
+      /* ---- caustics on the seabed ----------------------------------- */
+      ctx.globalCompositeOperation = 'lighter';
+      CAUSTIC_NODES.forEach((node, ni) => {
+        const nx = node.u * w + fbm(node.u * 3 + s.t * 0.32, node.v * 3) * 9;
+        const ny = node.v * h + fbm(node.u * 3 + 7, node.v * 3 + s.t * 0.2) * 5;
+        CAUSTIC_EDGES.forEach((e) => {
+          if (e[0] !== ni) return;
+          const o = CAUSTIC_NODES[e[1]];
+          const ox = o.u * w + fbm(o.u * 3 + s.t * 0.32, o.v * 3) * 9;
+          const oy = o.v * h + fbm(o.u * 3 + 7, o.v * 3 + s.t * 0.2) * 5;
+          const bri = Math.max(0, fbm(node.u * 2.4 + s.t * 0.15, node.v * 2.4)) * q;
+          if (bri < 0.06) return;
+          ctx.strokeStyle = `rgba(56,189,248,${0.06 + bri * 0.14})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(nx, ny);
+          ctx.lineTo(ox, oy);
+          ctx.stroke();
+        });
+      });
+      ctx.globalCompositeOperation = 'source-over';
 
-      const funnelGrad = ctx.createLinearGradient(funnelStart, 0, funnelEnd, 0);
-      funnelGrad.addColorStop(0, 'rgba(34,211,238,0.03)');
-      funnelGrad.addColorStop(0.6, 'rgba(16,185,129,0.1)');
-      funnelGrad.addColorStop(1, 'rgba(245,158,11,0.12)');
+      /* ---- surface wave crests + glints ----------------------------- */
       ctx.beginPath();
-      ctx.moveTo(funnelStart, topOpen);
-      ctx.quadraticCurveTo(
-        (funnelStart + funnelEnd) / 2,
-        topClose - 10 * compressionNorm,
-        funnelEnd,
-        topClose
-      );
-      ctx.lineTo(funnelEnd, botClose);
-      ctx.quadraticCurveTo(
-        (funnelStart + funnelEnd) / 2,
-        botClose + 10 * compressionNorm,
-        funnelStart,
-        botOpen
-      );
-      ctx.closePath();
-      ctx.fillStyle = funnelGrad;
-      ctx.fill();
-      ctx.strokeStyle = `rgba(34,211,238,${0.22 + compressionNorm * 0.45})`;
-      ctx.lineWidth = 1.6;
+      for (let x = 0; x <= w; x += 6) {
+        const y =
+          horizonY + 4 +
+          fbm(x * 0.008 + s.t * 0.6, 3.3) * 6 +
+          Math.sin(x * 0.02 + s.t * 1.7) * 2;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(148,197,255,${0.22 + q * 0.1})`;
+      ctx.lineWidth = 1;
       ctx.stroke();
 
-      // vortex eddies inside funnel
-      s.vortices.forEach((v, vi) => {
-        const vx = funnelStart + (funnelEnd - funnelStart) * (0.2 + vi * 0.25);
-        const vy = h * v.y + Math.sin(s.t * v.spin + vi) * 12;
-        const vr = Math.min(w, h) * v.r * (0.8 + compressionNorm);
+      ctx.globalCompositeOperation = 'lighter';
+      GLINTS.forEach((g) => {
+        const gx = g.x * w;
+        const gy =
+          horizonY + 6 + fbm(g.x * 4 + s.t * 0.5, s.t * 0.18) * 11;
+        const br = q * Math.max(0, Math.sin(s.t * g.sp + g.ph));
+        if (br < 0.4) return;
+        ctx.strokeStyle = `rgba(200,235,255,${(br - 0.4) * 0.7})`;
+        ctx.lineWidth = 1.4;
         ctx.beginPath();
-        ctx.arc(vx, vy, vr, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(56,189,248,${0.12 + compressionNorm * 0.2})`;
-        ctx.lineWidth = 1;
+        ctx.moveTo(gx - 7, gy);
+        ctx.lineTo(gx + 7, gy + fbm(g.x * 5, s.t) * 2);
         ctx.stroke();
       });
+      ctx.globalCompositeOperation = 'source-over';
 
-      // uplink budget wall
-      const wallPulse =
-        0.3 + Math.sin(s.t * 4) * 0.15 * (sm.budgetFill > 0.85 ? 1.4 : 0.25);
-      const wallW = 3 + sm.budgetFill * 8;
-      const wallGrad = ctx.createLinearGradient(0, topClose, 0, botClose);
-      wallGrad.addColorStop(0, `rgba(245,158,11,${wallPulse * 0.2})`);
-      wallGrad.addColorStop(0.5, `rgba(245,158,11,${wallPulse})`);
-      wallGrad.addColorStop(1, `rgba(244,63,94,${wallPulse * sm.budgetFill})`);
-      ctx.fillStyle = wallGrad;
-      ctx.fillRect(horizonX, topClose - 10, wallW, botClose - topClose + 20);
-      ctx.fillStyle = 'rgba(226,232,240,0.55)';
-      ctx.font = '600 10px JetBrains Mono, monospace';
-      ctx.fillText('UPLINK', horizonX - 6, topClose - 16);
-      ctx.fillText(`${Math.round(sm.budgetFill * 100)}%`, horizonX - 4, botClose + 18);
-
-      // pointer ripples
-      if (ptr.active) {
-        s.ripples.push({
-          x: ptr.x * w,
-          y: ptr.y * h,
-          r: 4,
-          life: 1,
-        });
-        ptr.active = false;
+      /* ---- flow currents (faint) ------------------------------------ */
+      ctx.strokeStyle = 'rgba(148,197,255,0.05)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let j = 0; j < f.rows; j += 1) {
+        for (let i = 0; i < f.cols; i += 1) {
+          const ang = f.arr[j * f.cols + i];
+          const x = ((i + 0.5) / f.cols) * w;
+          const y = horizonY + ((j + 0.5) / f.rows) * (h - horizonY);
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + Math.cos(ang) * 8, y + Math.sin(ang) * 8);
+        }
       }
+      ctx.stroke();
+
+      /* ---- compression corridor into the maelstrom ------------------- */
+      const corridorG = ctx.createLinearGradient(funnelStart, 0, mx, 0);
+      corridorG.addColorStop(0, `rgba(34,211,238,${0.02 + compressionNorm * 0.03})`);
+      corridorG.addColorStop(1, `rgba(34,211,238,${0.08 + compressionNorm * 0.12})`);
+      ctx.fillStyle = corridorG;
+      ctx.beginPath();
+      ctx.moveTo(funnelStart, my - h * 0.2);
+      ctx.lineTo(mx - maelR * 0.4, my - maelR * 0.8);
+      ctx.lineTo(mx - maelR * 0.4, my + maelR * 0.8);
+      ctx.lineTo(funnelStart, my + h * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(34,211,238,${0.14 + compressionNorm * 0.3})`;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([14, 18]);
+      ctx.lineDashOffset = -s.t * 46;
+      ctx.beginPath();
+      ctx.moveTo(funnelStart, my - h * 0.2);
+      ctx.lineTo(mx - maelR * 0.4, my - maelR * 0.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(funnelStart, my + h * 0.2);
+      ctx.lineTo(mx - maelR * 0.4, my + maelR * 0.8);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      /* ---- the maelstrom --------------------------------------------- */
+      const spin = 0.35 + compressionNorm * 0.95;
+      const arms = 6;
+      ctx.globalCompositeOperation = 'lighter';
+      for (let a = 0; a < arms; a += 1) {
+        const a0 = (a / arms) * Math.PI * 2 + s.t * spin;
+        ctx.beginPath();
+        for (let r = 3; r <= maelR; r += 6) {
+          const ang = a0 + r * 0.034 * (2.1 - compressionNorm) + fbm(r * 0.012, s.t * 0.4) * 0.35;
+          const x = mx + Math.cos(ang) * r;
+          const y = my + Math.sin(ang) * r * 0.9 + fbm(x * 0.004, s.t * 0.3) * 6;
+          if (r === 3) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        const fade = 1 - a / arms;
+        ctx.strokeStyle = `rgba(34,211,238,${(0.04 + 0.15 * compressionNorm) * fade})`;
+        ctx.lineWidth = 1 + compressionNorm;
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+
+      const coreG = ctx.createRadialGradient(mx, my, 0, mx, my, maelR * 0.55);
+      coreG.addColorStop(0, 'rgba(2,6,16,0.96)');
+      coreG.addColorStop(0.55, 'rgba(6,18,34,0.62)');
+      coreG.addColorStop(1, 'rgba(6,18,34,0)');
+      ctx.fillStyle = coreG;
+      ctx.beginPath();
+      ctx.arc(mx, my, maelR * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(56,189,248,${0.1 + compressionNorm * 0.22 + Math.sin(s.t * 5) * 0.05})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(mx, my, maelR * (0.55 + Math.sin(s.t * 3.2) * 0.04), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+
+      /* ---- uplink beam leaving the sea ------------------------------- */
+      ctx.globalCompositeOperation = 'lighter';
+      const bw = 3 + compressionNorm * 7 + Math.sin(s.t * 5) * 1.2;
+      const bg2 = ctx.createLinearGradient(mx, 0, w, 0);
+      bg2.addColorStop(0, 'rgba(16,185,129,0.55)');
+      bg2.addColorStop(0.55, 'rgba(56,189,248,0.28)');
+      bg2.addColorStop(1, 'rgba(226,232,240,0)');
+      ctx.strokeStyle = bg2;
+      ctx.lineWidth = bw;
+      ctx.beginPath();
+      ctx.moveTo(mx + maelR * 0.5, my);
+      ctx.lineTo(w + 20, my + Math.sin(s.t * 0.8) * 7);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+
+      /* ---- node buoy --------------------------------------------------- */
+      const bx = w * 0.055;
+      const by = h * 0.42;
+      const blink = 0.5 + 0.5 * Math.sin(s.t * 3.4);
+      const bCol = q > 0.7 ? { r: 16, g: 185, b: 129 } : q > 0.4 ? { r: 245, g: 158, b: 11 } : { r: 244, g: 63, b: 94 };
+      ctx.strokeStyle = 'rgba(148,197,255,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by + 6);
+      ctx.lineTo(bx, by - 26);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bx, by, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(148,197,255,0.5)';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(148,197,255,0.14)';
+      ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(${bCol.r},${bCol.g},${bCol.b},${0.35 + blink * 0.6})`;
+      ctx.beginPath();
+      ctx.arc(bx, by - 26, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      s.pingT = (s.pingT || 0) + 1;
+      if (s.pingT % 72 === 0) {
+        s.pings.push({ x: bx, y: by, r: 8, life: 1 });
+      }
+      s.pings = s.pings.filter((p) => {
+        p.r += 3.4;
+        p.life -= 0.014;
+        if (p.life <= 0) return false;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(${bCol.r},${bCol.g},${bCol.b},${p.life * 0.28})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+        return true;
+      });
+
+      /* ---- bioluminescent plankton ------------------------------------ */
+      const planktonTarget = Math.floor(
+        (compact ? 55 : 100) + spawnRate * (compact ? 55 : 110)
+      );
+      while (s.plankton.length < planktonTarget) {
+        s.plankton.push({
+          x: Math.random() * w,
+          y: horizonY + Math.random() * (h - horizonY),
+          ph: Math.random() * Math.PI * 2,
+          sp: 0.3 + Math.random() * 1.1,
+          sz: 0.6 + Math.random() * 1.6,
+          mod: MODALITY_ORDER[Math.floor(Math.random() * MODALITY_ORDER.length)],
+        });
+      }
+      if (s.plankton.length > planktonTarget) {
+        s.plankton.length = planktonTarget;
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      for (const p of s.plankton) {
+        const ang = flowAt(p.x, p.y, w, h);
+        p.x += Math.cos(ang) * 0.42;
+        p.y += Math.sin(ang) * 0.22 + Math.sin(s.t * 0.6 + p.ph) * 0.08;
+        if (p.x < -4) p.x = w + 4;
+        if (p.x > w + 4) p.x = -4;
+        if (p.y < horizonY - 4) p.y = h - 4;
+        if (p.y > h + 4) p.y = horizonY + 4;
+        const pulse = 0.5 + 0.5 * Math.sin(s.t * p.sp + p.ph);
+        const alpha = (0.05 + pulse * 0.4) * (0.4 + q * 0.6) * (1 - fog * 0.6);
+        const c = MODALITY_COLORS[p.mod];
+        const col = mixRgb({ r: 140, g: 214, b: 255 }, c, 0.32);
+        ctx.fillStyle = `rgba(${col.r},${col.g},${col.b},${alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.sz * (0.7 + pulse * 0.6), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+
+      /* ---- schooling signal fish --------------------------------------- */
+      const fishTarget = Math.floor(
+        (compact ? 24 : 46) + compressionNorm * (compact ? 14 : 34)
+      );
+      while (s.fish.length < fishTarget) {
+        s.fish.push(spawnFish(w, h, sm.modalities, spawnRate));
+      }
+      if (s.fish.length > fishTarget) {
+        s.fish.length = fishTarget;
+      }
+
+      const ptr = pointerRef.current;
+      const lure = performance.now() - ptr.glowUntil < 140;
+
+      for (const fish of s.fish) {
+        const inCorridor = fish.x > funnelStart;
+        const dxm = mx - fish.x;
+        const dym = my - fish.y;
+        const dm = Math.hypot(dxm, dym) + 0.001;
+
+        const c = MODALITY_COLORS[fish.mod] || MODALITY_COLORS.camera;
+        const focused = !focus || focus === fish.mod;
+        const dim = focus && !focused ? 0.28 : 1;
+
+        if (focused) {
+          fish.surge = lerp(fish.surge, inCorridor ? 1.5 : 0.6, 0.05);
+        } else {
+          fish.surge = lerp(fish.surge, 0.35, 0.05);
+        }
+
+        const fa = flowAt(fish.x, fish.y, w, h);
+        fish.vx += Math.cos(fa) * 0.006;
+        fish.vy += Math.sin(fa) * 0.004;
+
+        if (inCorridor) {
+          const pull = compressionNorm * 0.16 * (maelR * 1.4 / Math.max(dm, 1));
+          fish.vx += (dxm / dm) * pull;
+          fish.vy += (dym / dm) * pull;
+          fish.vx += (-dym / dm) * 0.035 * compressionNorm;
+          fish.vy += (dxm / dm) * 0.035 * compressionNorm;
+        }
+
+        if (lure) {
+          const dxp = ptr.x * w - fish.x;
+          const dyp = ptr.y * h - fish.y;
+          const dp = Math.hypot(dxp, dyp);
+          if (dp < 150 && dp > 1) {
+            fish.vx += (dxp / dp) * 0.05;
+            fish.vy += (dyp / dp) * 0.05;
+          }
+        }
+
+        if (fish.surge > 0.6 && focused) {
+          fish.vx = clamp(fish.vx, -2.5, 2.5);
+        }
+        if (fish.x > w + 40) {
+          Object.assign(fish, spawnFish(w, h, sm.modalities, spawnRate));
+        }
+        if (fish.y < horizonY - 30 || fish.y > h + 30) {
+          fish.y = clamp(fish.y, horizonY + 4, h - 4);
+          fish.vy *= -0.5;
+        }
+
+        fish.x += fish.vx;
+        fish.y += fish.vy + Math.sin(s.t * 2.2 + fish.x * 0.02) * 0.14 * chop;
+        fish.tail += 0.12 + fish.surge * 0.2;
+        fish.flick += 0.1;
+
+        if (inCorridor && dm < maelR * 0.22) {
+          s.sparks.push({
+            x: fish.x,
+            y: fish.y,
+            vx: (Math.random() - 0.5) * 1.2,
+            vy: (Math.random() - 0.5) * 1.2,
+            life: 1,
+            mod: fish.mod,
+          });
+          Object.assign(fish, spawnFish(w, h, sm.modalities, spawnRate));
+          continue;
+        }
+
+        drawFish(fish, c, dim);
+        if (fish.surge > 1 && focused) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${0.14 + compressionNorm * 0.1})`;
+          ctx.beginPath();
+          ctx.arc(fish.x, fish.y, fish.size * 2.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
+      }
+
+      /* ---- compression sparks ------------------------------------------ */
+      s.sparks = s.sparks.filter((sp) => {
+        sp.life -= 0.035;
+        sp.x += sp.vx;
+        sp.y += sp.vy;
+        sp.vx *= 0.94;
+        sp.vy *= 0.94;
+        if (sp.life <= 0) return false;
+        const c = MODALITY_COLORS[sp.mod] || MODALITY_COLORS.camera;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${sp.life * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 1.5 + sp.life * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        return true;
+      });
+
+      /* ---- wave spray when quality is low ------------------------------ */
+      if (spray > 0.12) {
+        ctx.fillStyle = `rgba(226,232,240,${0.05 + spray * 0.2})`;
+        for (let i = 0; i < 26 * spray; i += 1) {
+          const sx = Math.random() * funnelStart;
+          const sy = horizonY + 6 + fbm(sx * 0.008 + s.t, 1.3) * 7;
+          ctx.fillRect(sx, sy - Math.random() * 6, 2, 2);
+        }
+      }
+
+      /* ---- storm: rain + lightning -------------------------------------- */
+      if (chop > 0.25) {
+        const rainRate = (chop - 0.25) * 3;
+        for (let i = 0; i < rainRate && s.rain.length < 240; i += 1) {
+          s.rain.push({
+            x: Math.random() * w,
+            y: -12,
+            len: 8 + Math.random() * 14,
+            spd: 10 + chop * 15,
+          });
+        }
+      }
+      if (s.rain.length) {
+        ctx.strokeStyle = `rgba(148,163,184,${0.1 + chop * 0.2})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        s.rain = s.rain.filter((r) => {
+          r.y += r.spd;
+          if (r.y > h + 20) return false;
+          ctx.moveTo(r.x, r.y);
+          ctx.lineTo(r.x + 1.5, r.y + r.len);
+          return true;
+        });
+        ctx.stroke();
+      }
+      if (storm > 0.5 && Math.random() < storm * 0.008) {
+        s.flash = 1;
+        s.lx = Math.random() * w;
+        s.ly = Math.random() * horizonY * 0.55;
+      }
+      if (s.flash > 0.03) {
+        ctx.fillStyle = `rgba(226,240,255,${s.flash * 0.16})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = `rgba(226,240,255,${s.flash * 0.7})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(s.lx, s.ly);
+        let lx = s.lx;
+        let ly = s.ly;
+        while (ly < horizonY) {
+          lx += (Math.random() - 0.5) * 26;
+          ly += 14 + Math.random() * 12;
+          ctx.lineTo(lx, ly);
+        }
+        ctx.stroke();
+        s.flash *= 0.88;
+      }
+
+      /* ---- pointer lure glow + ripples ----------------------------------- */
+      if (lure) {
+        ctx.globalCompositeOperation = 'lighter';
+        const lureG = ctx.createRadialGradient(ptr.x * w, ptr.y * h, 0, ptr.x * w, ptr.y * h, 80);
+        lureG.addColorStop(0, 'rgba(34,211,238,0.16)');
+        lureG.addColorStop(1, 'rgba(34,211,238,0)');
+        ctx.fillStyle = lureG;
+        ctx.fillRect(ptr.x * w - 80, ptr.y * h - 80, 160, 160);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      s.ripples = s.ripples || [];
       s.ripples = s.ripples.filter((rp) => {
         rp.r += 2.2;
         rp.life -= 0.03;
         if (rp.life <= 0) return false;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(34,211,238,${rp.life * 0.4})`;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(34,211,238,${rp.life * 0.4})`;
         ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
         return true;
       });
 
-      // particles / signal droplets
-      const maxParticles = Math.floor((compact ? 60 : 110) + spawnRate * (compact ? 80 : 140));
-      while (s.particles.length < maxParticles) {
-        s.particles.push(spawnParticle(w, h, sm.modalities, spawnRate));
-      }
+      /* ---- vignette ------------------------------------------------------- */
+      const vig = ctx.createRadialGradient(w * 0.5, h * 0.45, Math.min(w, h) * 0.35, w * 0.5, h * 0.5, Math.max(w, h) * 0.75);
+      vig.addColorStop(0, 'rgba(0,0,10,0)');
+      vig.addColorStop(1, 'rgba(0,0,10,0.45)');
+      ctx.fillStyle = vig;
+      ctx.fillRect(0, 0, w, h);
 
-      const survivors = [];
-      for (const p of s.particles) {
-        if (hoveredMod && p.mod !== hoveredMod && Math.random() < 0.02) {
-          // gently cull non-hovered layers for focus
-        }
-        const inFunnel = p.x > funnelStart;
-        let cullChance = 0;
-        if (inFunnel) {
-          const progress = clamp((p.x - funnelStart) / (funnelEnd - funnelStart), 0, 1);
-          cullChance = progress * compressionNorm * 0.9;
-          // vortex swirl
-          const mid = h * 0.5;
-          const swirl = Math.sin(s.t * 3 + p.x * 0.02) * 0.8 * compressionNorm;
-          p.vy += swirl * 0.05;
-          p.y = lerp(p.y, mid + (p.y - mid) * (1 - progress * 0.9), 0.09);
-          p.vx = lerp(p.vx, 2.8 + compressionNorm * 3.5, 0.06);
-        }
-        if (Math.random() < cullChance * 0.09) {
-          // compression flash
-          if (Math.random() < 0.3) {
-            s.foam.push({ x: p.x, y: p.y, life: 1, mod: p.mod });
-          }
-          continue;
-        }
-
-        p.x += p.vx;
-        p.y += p.vy + Math.sin(s.t * 2.2 + p.x * 0.025) * 0.18 * chop;
-        p.life -= 0.0012;
-
-        // pointer attract/repel
-        const dx = p.x - ptr.x * w;
-        const dy = p.y - ptr.y * h;
-        const dist = Math.sqrt(dx * dx + dy * dy) + 1;
-        if (dist < 90) {
-          p.vx += (dx / dist) * 0.08;
-          p.vy += (dy / dist) * 0.08;
-        }
-
-        if (p.x > horizonX + 24 || p.life <= 0 || p.y < -10 || p.y > h + 10) continue;
-
-        const c = MODALITY_COLORS[p.mod] || MODALITY_COLORS.camera;
-        const dim = hoveredMod && hoveredMod !== p.mod ? 0.25 : 1;
-        const alpha = (0.4 + p.life * 0.45) * dim;
-        const funnelT = clamp((p.x - funnelStart) / Math.max(funnelEnd - funnelStart, 1), 0, 1);
-        const size = p.size * (inFunnel ? 1 - funnelT * 0.55 : 1);
-
-        if (p.trail) {
-          ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${alpha * 0.35})`;
-          ctx.beginPath();
-          ctx.moveTo(p.x - p.vx * 3, p.y - p.vy * 3);
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-        }
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${alpha})`;
-        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-        ctx.fill();
-        survivors.push(p);
-      }
-      s.particles = survivors;
-
-      // foam / compression sparks
-      s.foam = s.foam.filter((f) => {
-        f.life -= 0.04;
-        f.y -= 0.6;
-        if (f.life <= 0) return false;
-        const c = MODALITY_COLORS[f.mod] || MODALITY_COLORS.camera;
-        ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${f.life})`;
-        ctx.fillRect(f.x, f.y, 2, 2);
-        return true;
-      });
-
-      // quality spray
-      if (spray > 0.12) {
-        ctx.fillStyle = `rgba(226,232,240,${0.06 + spray * 0.22})`;
-        for (let i = 0; i < 28 * spray; i += 1) {
-          ctx.fillRect(Math.random() * funnelStart, h * 0.18 + Math.random() * h * 0.55, 2, 2);
-        }
-      }
-
-      // surviving beam past uplink
-      ctx.strokeStyle = `rgba(16,185,129,${0.25 + (1 - compressionNorm) * 0.35})`;
-      ctx.lineWidth = 2 + (1 - compressionNorm) * 3;
-      ctx.beginPath();
-      ctx.moveTo(horizonX + wallW, h * 0.5);
-      ctx.lineTo(w + 10, h * 0.5 + Math.sin(s.t) * 4);
-      ctx.stroke();
-
-      // HUD readout
+      /* ---- HUD readout ------------------------------------------------------ */
       ctx.fillStyle = 'rgba(248,250,252,0.82)';
-      ctx.font = compact
-        ? '600 11px DM Sans, sans-serif'
-        : '600 13px DM Sans, sans-serif';
+      ctx.font = compact ? '600 11px DM Sans, sans-serif' : '600 13px DM Sans, sans-serif';
       const label = selectedNode || tg.nodeId || 'fleet';
       ctx.fillText(
-        `${label}  ·  ${sm.compression.toFixed(1)}×  ·  q ${(sm.quality * 100).toFixed(0)}%  ·  ${sm.latency.toFixed(0)} ms`,
+        `${label}  ·  ${sm.compression.toFixed(1)}×  ·  q ${(q * 100).toFixed(0)}%  ·  ${sm.latency.toFixed(0)} ms`,
         16,
         h - 14
+      );
+      ctx.fillStyle = 'rgba(148,163,184,0.5)';
+      ctx.font = compact ? '600 9px DM Sans, sans-serif' : '600 10px DM Sans, sans-serif';
+      ctx.fillText(
+        `maelstrom ${Math.round(compressionNorm * 100)}% · weather ${storm > 0.5 ? 'storm' : 'clear'}`,
+        16,
+        h - (compact ? 26 : 30)
       );
 
       rafRef.current = requestAnimationFrame(tick);
@@ -499,7 +978,7 @@ function SignalOcean({
     };
   }, [
     selectedNode,
-    spawnParticle,
+    spawnFish,
     compact,
     demoFallback,
     applyMetric,
@@ -513,12 +992,10 @@ function SignalOcean({
     if (!rect) return;
     pointerRef.current.x = (e.clientX - rect.left) / rect.width;
     pointerRef.current.y = (e.clientY - rect.top) / rect.height;
+    pointerRef.current.glowUntil = performance.now() + 140;
   };
 
   const onClick = (e) => {
-    pointerRef.current.active = true;
-    onMove(e);
-    // map y to modality for selection feedback
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const ny = (e.clientY - rect.top) / rect.height;
@@ -526,6 +1003,14 @@ function SignalOcean({
     const mod = MODALITY_ORDER[idx];
     setHoveredMod((prev) => (prev === mod ? null : mod));
     onHoverModality?.(mod);
+    const state = stateRef.current;
+    state.ripples = state.ripples || [];
+    state.ripples.push({
+      x: ((e.clientX - rect.left) / rect.width) * rect.width,
+      y: ny * rect.height,
+      r: 4,
+      life: 1,
+    });
     if (selectedNode) onSelectNode?.(selectedNode);
   };
 
