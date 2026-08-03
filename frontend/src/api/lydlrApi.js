@@ -1,4 +1,29 @@
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+
+export function apiBaseUrl() {
+  return API_URL.replace(/\/$/, '');
+}
+
+export function metricsWsUrl() {
+  return `${WS_URL.replace(/\/$/, '')}/ws/metrics/`;
+}
+
+export function fleetWsUrl() {
+  return `${WS_URL.replace(/\/$/, '')}/ws/fleet/`;
+}
+
+export function previewMjpegUrl(nodeId, side = 'reconstructed') {
+  return `${apiBaseUrl()}/api/nodes/${encodeURIComponent(nodeId)}/preview.mjpg?side=${encodeURIComponent(side)}`;
+}
+
+export function previewJpegUrl(nodeId, side = 'reconstructed', bust = Date.now()) {
+  return `${apiBaseUrl()}/api/nodes/${encodeURIComponent(nodeId)}/preview.jpg?side=${encodeURIComponent(side)}&t=${bust}`;
+}
+
+export function nodeTopicsUrl(nodeId) {
+  return `/api/nodes/${encodeURIComponent(nodeId)}/topics/`;
+}
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
@@ -67,6 +92,12 @@ export const lydlrApi = {
     if (!res.ok) throw new Error(`Export failed: ${res.status}`);
     return res.blob();
   },
+  nodeTopics: (nodeId) => request(nodeTopicsUrl(nodeId)),
+  previewMjpegUrl: (nodeId, side) => previewMjpegUrl(nodeId, side),
+  previewJpegUrl: (nodeId, side, bust) => previewJpegUrl(nodeId, side, bust),
+  demoPulse: () =>
+    request('/api/demo/pulse/', { method: 'POST', body: '{}' }),
+  demoStatus: () => request('/api/demo/status/'),
   // legacy aliases
   federatedRoundsList: () => request('/api/federated/rounds/'),
   federatedRoundDetail: (roundId) => request(`/api/federated/rounds/${roundId}/`),

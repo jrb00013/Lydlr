@@ -1,5 +1,95 @@
 .dashboard {
   animation: fadeIn 0.45s ease-out;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard__ocean {
+  position: relative;
+  margin: 0 -1.5rem 0;
+  width: calc(100% + 3rem);
+  max-width: none;
+}
+
+.dashboard__ocean-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 1.5rem 1.75rem 3.25rem;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(7, 11, 20, 0.15) 0%,
+    rgba(7, 11, 20, 0) 35%,
+    rgba(7, 11, 20, 0.55) 100%
+  );
+  z-index: 2;
+}
+
+.dashboard__eyebrow {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cyan, #22d3ee);
+}
+
+.dashboard__ocean-copy h1 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.5rem, 3.5vw, 2.35rem);
+  letter-spacing: -0.03em;
+  color: #f8fafc;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+}
+
+.dashboard__ocean-copy p:last-child {
+  margin: 0;
+  max-width: 34rem;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.dashboard__ocean-stats {
+  display: flex;
+  gap: 1.75rem;
+  align-items: flex-end;
+}
+
+.dashboard__preview-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.85rem 0 1.5rem;
+}
+
+.dashboard__preview-pane {
+  margin: 0;
+}
+
+.dashboard__preview-pane figcaption {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.35rem;
+}
+
+.dashboard__preview-pane img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #070b14;
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.15));
+  display: block;
+}
+
+.dashboard__body {
+  padding-top: 0.25rem;
 }
 
 .dashboard__profile-badge {
@@ -39,6 +129,24 @@
   color: var(--text-secondary, #94a3b8);
   font-size: 0.95rem;
 }
+
+@media (max-width: 800px) {
+  .dashboard__ocean {
+    margin: 0;
+    width: 100%;
+  }
+
+  .dashboard__ocean-overlay {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .dashboard__preview-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 .dashboard__hero-metrics {
   display: flex;

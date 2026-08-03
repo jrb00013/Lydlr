@@ -1,0 +1,103 @@
+.signal-ocean {
+  position: relative;
+  width: 100%;
+  height: min(78vh, 620px);
+  min-height: 380px;
+  overflow: hidden;
+  background: var(--bg-deep, #070b14);
+  cursor: crosshair;
+}
+
+.signal-ocean--compact {
+  height: min(42vh, 340px);
+  min-height: 240px;
+}
+
+.signal-ocean__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.signal-ocean__chrome {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.signal-ocean__brand {
+  font-family: var(--font-sans, 'DM Sans', sans-serif);
+  font-size: clamp(1.75rem, 4vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-primary, #f8fafc);
+  text-shadow: 0 2px 28px rgba(0, 0, 0, 0.5);
+}
+
+.signal-ocean--compact .signal-ocean__brand {
+  font-size: clamp(1.35rem, 3vw, 1.85rem);
+}
+
+.signal-ocean__tag {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.signal-ocean__legend {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  z-index: 2;
+}
+
+.signal-ocean__chip {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0;
+  color: var(--text-secondary, #94a3b8);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 160ms ease, color 160ms ease;
+}
+
+.signal-ocean__chip:hover,
+.signal-ocean__chip.is-active {
+  opacity: 1;
+}
+
+.signal-ocean__chip--camera { border-bottom-color: var(--cyan, #22d3ee); color: var(--cyan, #22d3ee); }
+.signal-ocean__chip--lidar { border-bottom-color: var(--emerald, #10b981); color: var(--emerald, #10b981); }
+.signal-ocean__chip--imu { border-bottom-color: var(--amber, #f59e0b); color: var(--amber, #f59e0b); }
+.signal-ocean__chip--audio { border-bottom-color: #38bdf8; color: #38bdf8; }
+
+@media (max-width: 720px) {
+  .signal-ocean {
+    height: 56vh;
+    min-height: 300px;
+  }
+
+  .signal-ocean__legend {
+    top: auto;
+    bottom: 2.75rem;
+    left: 1rem;
+    right: 1rem;
+    justify-content: flex-start;
+  }
+}

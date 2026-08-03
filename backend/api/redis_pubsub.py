@@ -35,6 +35,12 @@ async def publish_message(channel: str, data: Dict[str, Any]) -> bool:
         return False
 
 
+def unwrap_pubsub_payload(envelope: Dict[str, Any]) -> Dict[str, Any]:
+    """Backward-compatible re-export. """
+    from backend.api.pubsub_utils import unwrap_pubsub_payload as _unwrap
+    return _unwrap(envelope)
+
+
 async def subscribe_to_channel(channel: str, callback: Callable[[Dict[str, Any]], None]):
     """
     Subscribe to a Redis channel and call callback for each message

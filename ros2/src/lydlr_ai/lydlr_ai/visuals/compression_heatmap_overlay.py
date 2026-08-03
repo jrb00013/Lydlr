@@ -1,45 +1,113 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 import numpy as np
-import cv2
+import os
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
 
 class CompressionHeatmapOverlay(Node):
+    """
+    Overlay compression error heatmap for a node.
+    Subscribes to Lydlr preview topics (preferred) with legacy fallbacks.
+    """
+
     def __init__(self):
         super().__init__('compression_heatmap_overlay')
-
-        self.bridge = CvBridge()
-
-        self.sub_orig = self.create_subscription(Image, '/camera/image_raw', self.orig_cb, 10)
-        self.sub_recon = self.create_subscription(Image, '/camera/reconstructed', self.recon_cb, 10)
+        node_id = os.getenv('NODE_ID', 'node_0')
+        raw_topic = os.getenv(
+            'LYDLR_PREVIEW_RAW',
+            f'/lydlr/{node_id}/preview/raw',
+        )
+        recon_topic = os.getenv(
+            'LYDLR_PREVIEW_RECON',
+            f'/lydlr/{node_id}/preview/reconstructed',
+        )
+        out_topic = os.getenv(
+            'LYDLR_PREVIEW_HEATMAP',
+            f'/lydlr/{node_id}/preview/heatmap',
+        )
 
         self.orig_img = None
         self.recon_img = None
 
-        self.pub_overlay = self.create_publisher(Image, '/camera/compression_heatmap', 10)
+        self.create_subscription(Image, raw_topic, self.orig_cb, 10)
+        self.create_subscription(Image, recon_topic, self.recon_cb, 10)
+        # Legacy camera bus fallback
+        self.create_subscription(Image, '/camera/image_raw', self.orig_cb, 10)
+        self.create_subscription(Image, '/camera/reconstructed', self.recon_cb, 10)
+
+        self.pub_overlay = self.create_publisher(Image, out_topic, 10)
+        self.get_logger().info(
+            f'Heatmap overlay: {raw_topic} + {recon_topic} → {out_topic}'
+        )
+
+    def _to_rgb(self, msg):
+        arr = np.frombuffer(msg.data, dtype=np.uint8)
+        if msg.encoding in ('rgb8', 'bgr8'):
+            img = arr.reshape(msg.height, msg.width, 3)
+            if msg.encoding == 'bgr8' and cv2 is not None:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            return img.copy()
+        if msg.encoding == 'mono8':
+            gray = arr.reshape(msg.height, msg.width)
+            return np.stack([gray, gray, gray], axis=-1)
+        return None
 
     def orig_cb(self, msg):
-        self.orig_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+        img = self._to_rgb(msg)
+        if img is not None:
+            self.orig_img = img
 
     def recon_cb(self, msg):
-        self.recon_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
-        if self.orig_img is not None:
-            self.publish_heatmap()
+        img = self._to_rgb(msg)
+        if img is not None:
+            self.recon_img = img
+            if self.orig_img is not None:
+                self.publish_heatmap()
 
     def publish_heatmap(self):
-        diff = cv2.absdiff(self.orig_img, self.recon_img)
+        if cv2 is None or self.orig_img is None or self.recon_img is None:
+            return
+        orig = self.orig_img
+        recon = self.recon_img
+        if orig.shape != recon.shape:
+            recon = cv2.resize(recon, (orig.shape[1], orig.shape[0]))
+        diff = cv2.absdiff(orig, recon)
         gray_diff = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
-        heatmap = cv2.applyColorMap((gray_diff*4).astype(np.uint8), cv2.COLORMAP_JET)
-        overlay = cv2.addWeighted(self.orig_img, 0.7, heatmap, 0.3, 0)
+        heatmap = cv2.applyColorMap(
+            np.clip(gray_diff.astype(np.uint16) * 4, 0, 255).astype(np.uint8),
+            cv2.COLORMAP_JET,
+        )
+        heatmap_rgb = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+        overlay = cv2.addWeighted(orig, 0.65, heatmap_rgb, 0.35, 0)
 
-        img_msg = self.bridge.cv2_to_imgmsg(overlay, encoding='rgb8')
+        img_msg = Image()
+        img_msg.height = overlay.shape[0]
+        img_msg.width = overlay.shape[1]
+        img_msg.encoding = 'rgb8'
+        img_msg.is_bigendian = 0
+        img_msg.step = img_msg.width * 3
+        img_msg.data = overlay.reshape(-1).tobytes()
         img_msg.header.stamp = self.get_clock().now().to_msg()
         self.pub_overlay.publish(img_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
     node = CompressionHeatmapOverlay()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

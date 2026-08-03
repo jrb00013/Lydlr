@@ -1,9 +1,27 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, Cell } from 'recharts';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+} from 'recharts';
+import SignalOcean from './SignalOcean';
+import { useMetricsWebSocket } from '../hooks/useMetricsWebSocket';
+import { useSmartPolling } from '../hooks/useSmartPolling';
+import { useDemoPulse } from '../hooks/useDemoPulse';
+import { lydlrApi, previewMjpegUrl, previewJpegUrl } from '../api/lydlrApi';
 import './VisualMonitoring.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+const maxHistoryLength = 100;
 
 function VisualMonitoring() {
   const [nodes, setNodes] = useState([]);
@@ -11,386 +29,361 @@ function VisualMonitoring() {
   const [topics, setTopics] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [compressionHistory, setCompressionHistory] = useState([]);
-  const [bandwidthData, setBandwidthData] = useState([]);
-  const [qualityHeatmap, setQualityHeatmap] = useState([]);
-  const wsRef = useRef(null);
-  const maxHistoryLength = 100;
+  const [modalitySeries, setModalitySeries] = useState([]);
+  const [linkHealth, setLinkHealth] = useState(null);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [useMjpeg, setUseMjpeg] = useState(true);
+  const lastMetricAtRef = useRef(0);
+
+  const selectedMetric = selectedNode ? metrics[selectedNode] : Object.values(metrics)[0];
+  const fleetMetrics = useMemo(() => Object.values(metrics), [metrics]);
+
+  const pushHistory = useCallback((metric) => {
+    if (!metric?.node_id || metric.compression_ratio == null) return;
+    lastMetricAtRef.current = Date.now();
+    setCompressionHistory((prev) => {
+      const updated = [
+        ...prev,
+        {
+          timestamp: new Date().toISOString(),
+          node: metric.node_id,
+          compression: metric.compression_ratio,
+          latency: metric.latency_ms,
+          quality: (metric.quality_score || 0) * 100,
+          throughput: metric.bandwidth_estimate,
+        },
+      ];
+      return updated.slice(-maxHistoryLength);
+    });
+
+    const mIn = metric.modality_bytes_in || {};
+    const mOut = metric.modality_bytes_out || {};
+    setModalitySeries((prev) => {
+      const point = {
+        time: new Date().toLocaleTimeString(),
+        node: metric.node_id,
+        cam_in: mIn.camera || 0,
+        lidar_in: mIn.lidar || 0,
+        imu_in: mIn.imu || 0,
+        audio_in: mIn.audio || 0,
+        cam_out: mOut.camera || 0,
+        lidar_out: mOut.lidar || 0,
+        imu_out: mOut.imu || 0,
+        audio_out: mOut.audio || 0,
+      };
+      return [...prev, point].slice(-40);
+    });
+  }, []);
+
+  const onLiveMetric = useCallback(
+    (metric) => {
+      if (!metric?.node_id) return;
+      setMetrics((prev) => ({ ...prev, [metric.node_id]: metric }));
+      pushHistory(metric);
+    },
+    [pushHistory]
+  );
+
+  useMetricsWebSocket(onLiveMetric, { enabled: true });
+  useDemoPulse({
+    enabled: true,
+    intervalMs: 1500,
+    onlyWhenIdle: true,
+    lastMetricAtRef,
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => setPreviewKey((k) => k + 1), 800);
+    return () => clearInterval(id);
+  }, []);
 
   const fetchNodes = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/api/nodes/`);
-      const data = await response.json();
+      const data = await lydlrApi.nodes();
       setNodes(data);
-      if (data.length > 0 && !selectedNode) {
-        setSelectedNode(data[0].node_id);
-      }
-    } catch (error) {
-      console.error('Failed to fetch nodes:', error);
-    }
-  }, [selectedNode]);
-
-  const fetchTopics = useCallback(async () => {
-    try {
-      // This would need a backend endpoint to get ROS2 topics
-      // For now, we'll simulate with node-based topics
-      const topicList = [];
-      nodes.forEach(node => {
-        topicList.push(
-          { name: `/${node.node_id}/compressed`, type: 'compressed', node: node.node_id },
-          { name: `/${node.node_id}/metrics`, type: 'metrics', node: node.node_id },
-          { name: `/${node.node_id}/decompressed`, type: 'decompressed', node: node.node_id }
-        );
-      });
-      setTopics(topicList);
-    } catch (error) {
-      console.error('Failed to fetch topics:', error);
-    }
-  }, [nodes]);
-
-  const fetchMetrics = useCallback(async (nodeId) => {
-    try {
-      const response = await fetch(`${API_URL}/api/metrics/?node_id=${nodeId}&limit=50`);
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        const latest = data[0];
-        setMetrics(prev => ({
-          ...prev,
-          [nodeId]: latest
-        }));
-
-        // Update compression history
-        setCompressionHistory(prev => {
-          const updated = [...prev, {
-            timestamp: new Date().toISOString(),
-            node: nodeId,
-            compression: latest.compression_ratio,
-            latency: latest.latency_ms,
-            quality: latest.quality_score * 100,
-            bandwidth: latest.bandwidth_estimate
-          }];
-          return updated.slice(-maxHistoryLength);
-        });
-
-        // Update bandwidth data
-        setBandwidthData(prev => {
-          const updated = [...prev, {
-            time: new Date().toLocaleTimeString(),
-            bandwidth: latest.bandwidth_estimate,
-            compression: latest.compression_ratio
-          }];
-          return updated.slice(-50);
-        });
-      }
-    } catch (error) {
-      console.error(`Failed to fetch metrics for ${nodeId}:`, error);
+      setSelectedNode((prev) => prev || (data[0] && data[0].node_id) || null);
+    } catch (e) {
+      console.error('Failed to fetch nodes:', e);
     }
   }, []);
 
-  useEffect(() => {
-    fetchNodes();
-    const interval = setInterval(() => {
-      fetchNodes();
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [fetchNodes]);
-
-  useEffect(() => {
-    if (nodes.length > 0) {
-      fetchTopics();
-      nodes.forEach(node => {
-        fetchMetrics(node.node_id);
-      });
+  const fetchLinkHealth = useCallback(async () => {
+    try {
+      setLinkHealth(await lydlrApi.fleetLinkHealth());
+    } catch (_) {
+      /* optional */
     }
-  }, [nodes, fetchTopics, fetchMetrics]);
-
-  useEffect(() => {
-    // WebSocket connection for real-time updates
-    const connectWebSocket = () => {
-      try {
-        const ws = new WebSocket(`${WS_URL}/ws/metrics`);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          console.log('WebSocket connected for visual monitoring');
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'metrics_update' && data.data) {
-              const metric = data.data;
-              const nodeId = metric.node_id;
-              
-              setMetrics(prev => ({
-                ...prev,
-                [nodeId]: metric
-              }));
-
-              setCompressionHistory(prev => {
-                const updated = [...prev, {
-                  timestamp: new Date().toISOString(),
-                  node: nodeId,
-                  compression: metric.compression_ratio,
-                  latency: metric.latency_ms,
-                  quality: metric.quality_score * 100,
-                  bandwidth: metric.bandwidth_estimate
-                }];
-                return updated.slice(-maxHistoryLength);
-              });
-            }
-          } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
-          }
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-
-        ws.onclose = () => {
-          console.log('WebSocket closed, reconnecting...');
-          setTimeout(connectWebSocket, 3000);
-        };
-      } catch (error) {
-        console.error('Failed to connect WebSocket:', error);
-      }
-    };
-
-    connectWebSocket();
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
   }, []);
 
-  // Generate quality heatmap data
-  useEffect(() => {
-    const heatmap = [];
-    nodes.forEach((node, idx) => {
-      const metric = metrics[node.node_id];
-      if (metric) {
-        heatmap.push({
-          x: idx,
-          y: metric.quality_score * 100,
-          z: metric.compression_ratio,
-          node: node.node_id,
-          quality: metric.quality_score * 100
-        });
+  const fetchTopics = useCallback(async (nodeId) => {
+    if (!nodeId) return;
+    try {
+      const data = await lydlrApi.nodeTopics(nodeId);
+      setTopics(data.topics || []);
+    } catch (_) {
+      setTopics([
+        { name: `/lydlr/${nodeId}/transport/compressed`, type: 'compressed', node: nodeId },
+        { name: `/lydlr/${nodeId}/transport/metrics`, type: 'metrics', node: nodeId },
+        { name: `/lydlr/${nodeId}/preview/raw`, type: 'preview', node: nodeId },
+        { name: `/lydlr/${nodeId}/preview/reconstructed`, type: 'preview', node: nodeId },
+        { name: `/lydlr/${nodeId}/preview/heatmap`, type: 'preview', node: nodeId },
+      ]);
+    }
+  }, []);
+
+  const fetchRecent = useCallback(async () => {
+    if (!selectedNode) return;
+    try {
+      const res = await fetch(`${API_URL}/api/metrics/?node_id=${selectedNode}&limit=40`);
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]) {
+        setMetrics((prev) => ({ ...prev, [selectedNode]: data[0] }));
+        [...data].reverse().forEach(pushHistory);
       }
-    });
-    setQualityHeatmap(heatmap);
-  }, [nodes, metrics]);
+    } catch (_) {
+      /* ignore */
+    }
+  }, [selectedNode, pushHistory]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([fetchNodes(), fetchLinkHealth()]);
+  }, [fetchNodes, fetchLinkHealth]);
+
+  useSmartPolling(refresh, { interval: 10000, immediate: true });
+
+  useEffect(() => {
+    fetchTopics(selectedNode);
+    fetchRecent();
+    setPreviewKey((k) => k + 1);
+  }, [selectedNode, fetchTopics, fetchRecent]);
+
+  const nodeHistory = useMemo(
+    () => compressionHistory.filter((m) => !selectedNode || m.node === selectedNode),
+    [compressionHistory, selectedNode]
+  );
+
+  const modalityForNode = useMemo(
+    () => modalitySeries.filter((m) => !selectedNode || m.node === selectedNode),
+    [modalitySeries, selectedNode]
+  );
+
+  const budgetRow = useMemo(() => {
+    const list = linkHealth?.nodes || linkHealth?.health || [];
+    if (!Array.isArray(list)) return null;
+    return list.find((n) => n.node_id === selectedNode) || list[0] || null;
+  }, [linkHealth, selectedNode]);
 
   const getQualityColor = (quality) => {
-    if (quality >= 80) return '#00ff00';
-    if (quality >= 60) return '#ffff00';
-    if (quality >= 40) return '#ff8800';
-    return '#ff0000';
+    if (quality >= 80) return 'var(--emerald, #10b981)';
+    if (quality >= 60) return 'var(--amber, #f59e0b)';
+    return 'var(--rose, #f43f5e)';
   };
 
-  const nodeHistory = compressionHistory.filter(m => m.node === selectedNode);
+  const sides = [
+    { key: 'raw', label: 'Raw' },
+    { key: 'reconstructed', label: 'Reconstructed' },
+    { key: 'heatmap', label: 'Heatmap' },
+  ];
 
   return (
     <div className="visual-monitoring">
-      <div className="monitoring-header">
-        <h1 className="page-title">Visual Monitoring Dashboard</h1>
-        <div className="node-selector-container">
-          <label>Select Node:</label>
-          <select 
-            value={selectedNode || ''} 
-            onChange={(e) => setSelectedNode(e.target.value)}
+      <section className="visual-hero">
+        <SignalOcean
+          metric={selectedMetric}
+          fleetMetrics={fleetMetrics}
+          linkHealth={linkHealth}
+          selectedNode={selectedNode}
+          onSelectNode={setSelectedNode}
+          demoFallback
+        />
+        <div className="visual-hero__controls">
+          <label htmlFor="vm-node">Node</label>
+          <select
+            id="vm-node"
+            value={selectedNode || ''}
+            onChange={(e) => setSelectedNode(e.target.value || null)}
             className="node-selector"
           >
-            <option value="">All Nodes</option>
-            {nodes.map(node => (
+            {nodes.map((node) => (
               <option key={node.node_id} value={node.node_id}>
-                {node.node_id} ({node.status})
+                {node.node_id} ({node.status || 'unknown'})
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="preview-mode-btn"
+            onClick={() => setUseMjpeg((v) => !v)}
+          >
+            {useMjpeg ? 'MJPEG' : 'JPEG poll'}
+          </button>
         </div>
-      </div>
+      </section>
 
-      <div className="monitoring-grid">
-        {/* Real-time Metrics Cards */}
-        <div className="metrics-cards">
-          {nodes.map(node => {
-            const metric = metrics[node.node_id];
-            if (!metric) return null;
-            
-            return (
-              <div key={node.node_id} className={`metric-card ${selectedNode === node.node_id ? 'selected' : ''}`}>
-                <div className="metric-card-header">
-                  <h3>{node.node_id}</h3>
-                  <span className={`status-badge status-${node.status}`}>{node.status}</span>
-                </div>
-                <div className="metric-values">
-                  <div className="metric-item">
-                    <span className="metric-label">Compression:</span>
-                    <span className="metric-value highlight">{metric.compression_ratio.toFixed(2)}x</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">Latency:</span>
-                    <span className="metric-value">{metric.latency_ms.toFixed(1)}ms</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">Quality:</span>
-                    <span className="metric-value" style={{ color: getQualityColor(metric.quality_score * 100) }}>
-                      {(metric.quality_score * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">Bandwidth:</span>
-                    <span className="metric-value">{(metric.bandwidth_estimate * 100).toFixed(1)}%</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Compression Ratio Over Time */}
-        <div className="chart-card card">
-          <h2>Compression Ratio Over Time</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={nodeHistory.length > 0 ? nodeHistory : compressionHistory}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="timestamp" 
-                tickFormatter={(value) => new Date(value).toLocaleTimeString()}
-              />
-              <YAxis />
-              <Tooltip 
-                labelFormatter={(value) => new Date(value).toLocaleString()}
-              />
-              <Legend />
-              {selectedNode ? (
-                <Line 
-                  type="monotone" 
-                  dataKey="compression" 
-                  stroke="#8884d8" 
-                  name="Compression Ratio"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              ) : (
-                nodes.map((node, idx) => {
-                  const nodeData = compressionHistory.filter(m => m.node === node.node_id);
-                  const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00'];
-                  return (
-                    <Line 
-                      key={node.node_id}
-                      type="monotone" 
-                      dataKey="compression" 
-                      data={nodeData}
-                      stroke={colors[idx % colors.length]}
-                      name={node.node_id}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  );
-                })
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Quality vs Compression Scatter */}
-        <div className="chart-card card">
-          <h2>Quality vs Compression Analysis</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart data={qualityHeatmap}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="x" name="Node Index" />
-              <YAxis dataKey="y" name="Quality Score (%)" />
-              <Tooltip 
-                cursor={{ strokeDasharray: '3 3' }}
-                content={({ active, payload }) => {
-                  if (active && payload && payload[0]) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="custom-tooltip">
-                        <p>Node: {data.node}</p>
-                        <p>Quality: {data.quality.toFixed(1)}%</p>
-                        <p>Compression: {data.z.toFixed(2)}x</p>
-                      </div>
-                    );
-                  }
-                  return null;
+      <div className="visual-below">
+        <div className="live-strip">
+          <div className="live-strip__item">
+            <span className="live-strip__label">Compression</span>
+            <span className="live-strip__value">
+              {selectedMetric?.compression_ratio != null
+                ? `${Number(selectedMetric.compression_ratio).toFixed(2)}×`
+                : '—'}
+            </span>
+          </div>
+          <div className="live-strip__item">
+            <span className="live-strip__label">Latency</span>
+            <span className="live-strip__value">
+              {selectedMetric?.latency_ms != null
+                ? `${Number(selectedMetric.latency_ms).toFixed(1)} ms`
+                : '—'}
+            </span>
+          </div>
+          <div className="live-strip__item">
+            <span className="live-strip__label">Quality</span>
+            <span
+              className="live-strip__value"
+              style={{
+                color: getQualityColor((selectedMetric?.quality_score || 0) * 100),
+              }}
+            >
+              {selectedMetric?.quality_score != null
+                ? `${(selectedMetric.quality_score * 100).toFixed(1)}%`
+                : '—'}
+            </span>
+          </div>
+          <div className="live-strip__item live-strip__item--wide">
+            <span className="live-strip__label">Uplink vs budget</span>
+            <div className="budget-bar">
+              <div
+                className="budget-bar__fill"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    budgetRow
+                      ? ((budgetRow.estimated_throughput_kbps || 0) /
+                          Math.max(budgetRow.uplink_budget_kbps || 1, 1)) *
+                        100
+                      : (selectedMetric?.bandwidth_estimate || 0) * 100
+                  )}%`,
                 }}
               />
-              <Scatter name="Quality" dataKey="y" fill="#8884d8">
-                {qualityHeatmap.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getQualityColor(entry.quality)} />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Bandwidth Utilization */}
-        <div className="chart-card card">
-          <h2>Bandwidth Utilization</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={bandwidthData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="bandwidth" fill="#82ca9d" name="Bandwidth %" />
-              <Bar dataKey="compression" fill="#8884d8" name="Compression Ratio" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Topics Overview */}
-        <div className="topics-card card">
-          <h2>Active Topics</h2>
-          <div className="topics-list">
-            {topics.map((topic, idx) => (
-              <div key={idx} className="topic-item">
-                <span className="topic-name">{topic.name}</span>
-                <span className="topic-type">{topic.type}</span>
-                <span className="topic-node">{topic.node}</span>
-              </div>
-            ))}
+            </div>
+            <span className="live-strip__meta">
+              {budgetRow
+                ? `${Number(budgetRow.estimated_throughput_kbps || 0).toFixed(0)} / ${Number(
+                    budgetRow.uplink_budget_kbps || 0
+                  ).toFixed(0)} kbps`
+                : 'awaiting link health'}
+            </span>
           </div>
         </div>
 
-        {/* System Performance Summary */}
-        <div className="summary-card card">
-          <h2>System Performance Summary</h2>
-          <div className="summary-stats">
-            <div className="summary-item">
-              <span className="summary-label">Total Nodes:</span>
-              <span className="summary-value">{nodes.length}</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Active Nodes:</span>
-              <span className="summary-value">
-                {nodes.filter(n => n.status === 'active').length}
-              </span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Avg Compression:</span>
-              <span className="summary-value">
-                {Object.values(metrics).length > 0
-                  ? (Object.values(metrics).reduce((sum, m) => sum + m.compression_ratio, 0) / Object.values(metrics).length).toFixed(2)
-                  : '0.00'}x
-              </span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Avg Quality:</span>
-              <span className="summary-value">
-                {Object.values(metrics).length > 0
-                  ? (Object.values(metrics).reduce((sum, m) => sum + m.quality_score, 0) / Object.values(metrics).length * 100).toFixed(1)
-                  : '0.0'}%
-              </span>
-            </div>
+        <div className="preview-panes">
+          {sides.map(({ key, label }) => (
+            <figure key={key} className="preview-pane">
+              <figcaption>{label}</figcaption>
+              {selectedNode ? (
+                <img
+                  key={`${selectedNode}-${key}-${useMjpeg ? 'm' : previewKey}`}
+                  src={
+                    useMjpeg
+                      ? previewMjpegUrl(selectedNode, key)
+                      : previewJpegUrl(selectedNode, key, previewKey)
+                  }
+                  alt={`${label} preview for ${selectedNode}`}
+                  className="preview-pane__img"
+                  onError={() => setUseMjpeg(false)}
+                />
+              ) : (
+                <div className="preview-pane__empty">Select a node</div>
+              )}
+            </figure>
+          ))}
+        </div>
+
+        <div className="monitoring-grid">
+          <div className="chart-panel">
+            <h2>Compression over time</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={nodeHistory}>
+                <defs>
+                  <linearGradient id="compFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis
+                  dataKey="timestamp"
+                  tickFormatter={(v) => new Date(v).toLocaleTimeString()}
+                  stroke="#64748b"
+                  fontSize={11}
+                />
+                <YAxis stroke="#64748b" fontSize={11} />
+                <Tooltip
+                  contentStyle={{ background: '#111827', border: '1px solid #334155' }}
+                  labelFormatter={(v) => new Date(v).toLocaleString()}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="compression"
+                  stroke="#22d3ee"
+                  fill="url(#compFill)"
+                  name="Compression"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="chart-panel">
+            <h2>Modality bytes in</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={modalityForNode}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
+                <YAxis stroke="#64748b" fontSize={11} />
+                <Tooltip contentStyle={{ background: '#111827', border: '1px solid #334155' }} />
+                <Legend />
+                <Bar dataKey="cam_in" stackId="in" fill="#22d3ee" name="camera" />
+                <Bar dataKey="lidar_in" stackId="in" fill="#10b981" name="lidar" />
+                <Bar dataKey="imu_in" stackId="in" fill="#f59e0b" name="imu" />
+                <Bar dataKey="audio_in" stackId="in" fill="#38bdf8" name="audio" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="chart-panel">
+            <h2>Latency & quality</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={nodeHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis
+                  dataKey="timestamp"
+                  tickFormatter={(v) => new Date(v).toLocaleTimeString()}
+                  stroke="#64748b"
+                  fontSize={11}
+                />
+                <YAxis stroke="#64748b" fontSize={11} />
+                <Tooltip contentStyle={{ background: '#111827', border: '1px solid #334155' }} />
+                <Legend />
+                <Line type="monotone" dataKey="latency" stroke="#f59e0b" name="Latency ms" dot={false} />
+                <Line type="monotone" dataKey="quality" stroke="#10b981" name="Quality %" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="topics-panel">
+            <h2>Topics</h2>
+            <ul className="topics-list">
+              {topics.map((topic) => (
+                <li key={topic.name} className={`topic-item${topic.live ? ' topic-item--live' : ''}`}>
+                  <span className="topic-name">{topic.name}</span>
+                  <span className="topic-type">{topic.type}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -399,4 +392,3 @@ function VisualMonitoring() {
 }
 
 export default VisualMonitoring;
-

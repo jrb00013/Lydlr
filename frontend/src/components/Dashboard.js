@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -21,11 +21,14 @@ import PageHeader from './ui/PageHeader';
 import LoadingSpinner from './ui/LoadingSpinner';
 import LinkBudgetPanel from './LinkBudgetPanel';
 import RLPolicyPanel from './RLPolicyPanel';
+import SignalOcean from './SignalOcean';
 import './Dashboard.css';
 import { useSmartPolling } from '../hooks/useSmartPolling';
+import { useMetricsWebSocket } from '../hooks/useMetricsWebSocket';
+import { useDemoPulse } from '../hooks/useDemoPulse';
+import { previewJpegUrl } from '../api/lydlrApi';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
 
 function Dashboard({ connected }) {
   const [stats, setStats] = useState({
@@ -42,10 +45,16 @@ function Dashboard({ connected }) {
   });
   const [fleetNodes, setFleetNodes] = useState([]);
   const [metricsHistory, setMetricsHistory] = useState([]);
+  const [latestMetric, setLatestMetric] = useState(null);
+  const [linkHealth, setLinkHealth] = useState(null);
+  const [previewTick, setPreviewTick] = useState(0);
   const [loading, setLoading] = useState(true);
+  const lastMetricAtRef = useRef(0);
 
   const pushMetric = useCallback((m) => {
     if (!m || m.compression_ratio == null) return;
+    lastMetricAtRef.current = Date.now();
+    setLatestMetric(m);
     setMetricsHistory((prev) => {
       const label = m.node_id
         ? `${m.node_id.split('_').pop()} · ${new Date().toLocaleTimeString()}`
@@ -60,6 +69,13 @@ function Dashboard({ connected }) {
     });
   }, []);
 
+  useDemoPulse({
+    enabled: !!connected,
+    intervalMs: 1600,
+    onlyWhenIdle: true,
+    lastMetricAtRef,
+  });
+
   const fetchStats = useCallback(async () => {
     const res = await fetch(`${API_URL}/api/stats/`);
     if (res.ok) setStats(await res.json());
@@ -70,11 +86,21 @@ function Dashboard({ connected }) {
     if (res.ok) setFleetNodes(await res.json());
   }, []);
 
+  const fetchLinkHealth = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/fleet/link-policy/health/`);
+      if (res.ok) setLinkHealth(await res.json());
+    } catch (_) {
+      /* optional */
+    }
+  }, []);
+
   const fetchRecentMetrics = useCallback(async () => {
     const res = await fetch(`${API_URL}/api/metrics/?limit=30`);
     if (!res.ok) return;
     const rows = await res.json();
     if (!rows.length) return;
+    setLatestMetric(rows[0]);
     const history = [...rows].reverse().map((m) => ({
       timestamp: `${(m.node_id || '').replace('node_', '').replace('iot_gateway_', 'gw')} · ${new Date(m.timestamp).toLocaleTimeString()}`,
       compression: m.compression_ratio,
@@ -86,30 +112,37 @@ function Dashboard({ connected }) {
 
   const refreshAll = useCallback(async () => {
     try {
-      await Promise.all([fetchStats(), fetchFleet(), fetchRecentMetrics()]);
+      await Promise.all([
+        fetchStats(),
+        fetchFleet(),
+        fetchRecentMetrics(),
+        fetchLinkHealth(),
+      ]);
     } catch (e) {
       console.warn('Dashboard refresh failed:', e);
     } finally {
       setLoading(false);
     }
-  }, [fetchStats, fetchFleet, fetchRecentMetrics]);
+  }, [fetchStats, fetchFleet, fetchRecentMetrics, fetchLinkHealth]);
 
   useEffect(() => {
     refreshAll();
-    const ws = new WebSocket(`${WS_URL}/ws/metrics`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'metrics_update') {
-          pushMetric(data.data);
-          fetchStats();
-        }
-      } catch (_) {
-        /* ignore */
-      }
-    };
-    return () => ws.close();
-  }, [refreshAll, pushMetric, fetchStats]);
+  }, [refreshAll]);
+
+  useEffect(() => {
+    const id = setInterval(() => setPreviewTick((t) => t + 1), 900);
+    return () => clearInterval(id);
+  }, []);
+
+  const onLiveMetric = useCallback(
+    (metric) => {
+      pushMetric(metric);
+      fetchStats();
+    },
+    [pushMetric, fetchStats]
+  );
+
+  useMetricsWebSocket(onLiveMetric, { enabled: connected });
 
   useSmartPolling(refreshAll, {
     interval: 8000,
@@ -121,6 +154,11 @@ function Dashboard({ connected }) {
 
   const droneNodes = fleetNodes.filter((n) => n.vertical === 'drone');
   const iotNodes = fleetNodes.filter((n) => n.vertical === 'iot');
+  const focusNode = latestMetric?.node_id || fleetNodes[0]?.node_id;
+  const fleetMetricList = useMemo(
+    () => (latestMetric ? [latestMetric] : []),
+    [latestMetric]
+  );
 
   if (loading) {
     return <LoadingSpinner message="Loading edge fleet…" />;
@@ -128,212 +166,239 @@ function Dashboard({ connected }) {
 
   return (
     <div className="dashboard page-enter">
-      <PageHeader
-        title="Drone & IoT Edge Console"
-        subtitle="Bandwidth-adaptive multimodal compression for UAV downlinks and LPWAN edge gateways"
-        icon={FlightIcon}
-        badge={
-          <span className="dashboard__profile-badge">
-            {stats.fleet_profile || 'drone_iot_edge'}
-          </span>
-        }
-      />
-
-      <section className="dashboard__hero card">
-        <div className="dashboard__hero-copy">
-          <h2>Edge AI compression in flight</h2>
-          <p>
-            Compress camera, LiDAR, IMU, and telemetry at the edge before uplink.
-            RL-tuned levels adapt to CPU load and link budget — built for drones on
-            512&nbsp;kbps links and IoT gateways on 64&nbsp;kbps LPWAN.
-          </p>
-        </div>
-        <div className="dashboard__hero-metrics">
-          <div className="hero-stat">
-            <span className="hero-stat__value">
-              {stats.estimated_uplink_saved_kbps > 0
-                ? `${stats.estimated_uplink_saved_kbps.toFixed(0)}`
-                : '—'}
-            </span>
-            <span className="hero-stat__label">kbps saved (est.)</span>
+      <section className="dashboard__ocean">
+        <SignalOcean
+          metric={latestMetric}
+          fleetMetrics={fleetMetricList}
+          linkHealth={linkHealth}
+          selectedNode={focusNode}
+          compact
+          demoFallback
+        />
+        <div className="dashboard__ocean-overlay">
+          <div className="dashboard__ocean-copy">
+            <p className="dashboard__eyebrow">Lydlr</p>
+            <h1>Compression as weather</h1>
+            <p>
+              Multimodal signals flood in, squeeze through the live funnel, and only
+              the surviving uplink crosses the budget wall.
+            </p>
           </div>
-          <div className="hero-stat">
-            <span className="hero-stat__value">
-              {stats.avg_compression_ratio > 0
-                ? `${stats.avg_compression_ratio.toFixed(1)}×`
-                : '—'}
-            </span>
-            <span className="hero-stat__label">fleet compression</span>
+          <div className="dashboard__ocean-stats">
+            <div className="hero-stat">
+              <span className="hero-stat__value">
+                {stats.estimated_uplink_saved_kbps > 0
+                  ? `${stats.estimated_uplink_saved_kbps.toFixed(0)}`
+                  : '—'}
+              </span>
+              <span className="hero-stat__label">kbps saved</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-stat__value">
+                {stats.avg_compression_ratio > 0
+                  ? `${stats.avg_compression_ratio.toFixed(1)}×`
+                  : latestMetric?.compression_ratio != null
+                    ? `${Number(latestMetric.compression_ratio).toFixed(1)}×`
+                    : '—'}
+              </span>
+              <span className="hero-stat__label">compression</span>
+            </div>
           </div>
         </div>
       </section>
 
-      <div className="stats-grid grid grid-4">
-        <div className="stat-card card stat-card--drone">
-          <FlightIcon className="stat-card__icon" />
-          <div className="stat-value">
-            {stats.active_drones}/{stats.total_nodes || '—'}
-          </div>
-          <div className="stat-label">UAV compressors</div>
-        </div>
-        <div className="stat-card card stat-card--iot">
-          <SensorsIcon className="stat-card__icon" />
-          <div className="stat-value">{stats.active_iot}</div>
-          <div className="stat-label">IoT gateways</div>
-        </div>
-        <div className="stat-card card">
-          <SpeedIcon className="stat-card__icon" />
-          <div className="stat-value">
-            {stats.avg_latency_ms > 0 ? `${stats.avg_latency_ms.toFixed(1)}` : '—'}
-            <small>ms</small>
-          </div>
-          <div className="stat-label">edge latency</div>
-        </div>
-        <div className="stat-card card">
-          <SignalCellularAltIcon className="stat-card__icon" />
-          <div className="stat-value">
-            {stats.avg_quality_score > 0
-              ? `${(stats.avg_quality_score * 100).toFixed(0)}%`
-              : '—'}
-          </div>
-          <div className="stat-label">perceptual quality</div>
-        </div>
-      </div>
-
-      <div className="dashboard__fleet grid grid-2">
-        <FleetPanel
-          title="UAV fleet"
-          icon={FlightIcon}
-          variant="drone"
-          nodes={droneNodes}
-          emptyHint="Start ROS2 with --ros2 to stream UAV metrics"
-        />
-        <FleetPanel
-          title="IoT edge"
-          icon={SensorsIcon}
-          variant="iot"
-          nodes={iotNodes}
-          emptyHint="iot_gateway_01 reports on LPWAN budget"
-        />
-      </div>
-
-      <LinkBudgetPanel />
-
-      <RLPolicyPanel />
-
-      <div className="charts-section">
-        <div className="card chart-card">
-          <h2>
-            <HubIcon /> Live compression telemetry
-          </h2>
-          {metricsHistory.length === 0 ? (
-            <p className="chart-empty">
-              {connected
-                ? 'Waiting for edge metrics — run ./start-lydlr.sh --build -d --ros2'
-                : 'API offline — start the backend to see live data'}
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={metricsHistory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
-                <XAxis dataKey="timestamp" tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="left" />
-                <YAxis yAxisId="right" orientation="right" />
-                <Tooltip />
-                <Legend />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="compression"
-                  stroke="#60a5fa"
-                  name="Compression ratio"
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="latency"
-                  stroke="#34d399"
-                  name="Latency (ms)"
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="quality"
-                  stroke="#fbbf24"
-                  name="Quality"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        <div className="card chart-card">
-          <h2>
-            <MemoryIcon /> Uplink efficiency
-          </h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart
-              data={[
-                {
-                  name: 'Raw uplink',
-                  kbps: stats.estimated_uplink_saved_kbps + 400,
-                },
-                {
-                  name: 'After Lydlr',
-                  kbps: Math.max(400 - stats.estimated_uplink_saved_kbps, 80),
-                },
-              ]}
-            >
-              <defs>
-                <linearGradient id="uplinkGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-              <XAxis dataKey="name" />
-              <YAxis unit=" kbps" />
-              <Tooltip />
-              <Area
-                type="monotone"
-                dataKey="kbps"
-                stroke="#60a5fa"
-                fill="url(#uplinkGrad)"
-                name="Uplink"
+      {focusNode && (
+        <div className="dashboard__preview-strip">
+          {['raw', 'reconstructed', 'heatmap'].map((side) => (
+            <figure key={side} className="dashboard__preview-pane">
+              <figcaption>{side}</figcaption>
+              <img
+                src={previewJpegUrl(focusNode, side, previewTick)}
+                alt={`${side} preview`}
               />
-            </AreaChart>
-          </ResponsiveContainer>
+            </figure>
+          ))}
         </div>
-      </div>
+      )}
 
-      <div className="system-info card">
-        <h2>Edge deployment</h2>
-        <div className="info-grid">
-          <div className="info-item">
-            <span className="info-label">Control plane</span>
-            <span className={`info-value ${connected ? 'status-online' : ''}`}>
-              {connected ? '● Live' : '○ Offline'}
+      <div className="dashboard__body">
+        <PageHeader
+          title="Drone & IoT Edge Console"
+          subtitle="Bandwidth-adaptive multimodal compression for UAV downlinks and LPWAN edge gateways"
+          icon={FlightIcon}
+          badge={
+            <span className="dashboard__profile-badge">
+              {stats.fleet_profile || 'drone_iot_edge'}
             </span>
+          }
+        />
+
+        <div className="stats-grid grid grid-4">
+          <div className="stat-card card stat-card--drone">
+            <FlightIcon className="stat-card__icon" />
+            <div className="stat-value">
+              {stats.active_drones}/{stats.total_nodes || '—'}
+            </div>
+            <div className="stat-label">UAV compressors</div>
           </div>
-          <div className="info-item">
-            <span className="info-label">ROS 2 profile</span>
-            <span className="info-value">{stats.vertical || 'drone'}</span>
+          <div className="stat-card card stat-card--iot">
+            <SensorsIcon className="stat-card__icon" />
+            <div className="stat-value">{stats.active_iot}</div>
+            <div className="stat-label">IoT gateways</div>
           </div>
-          <div className="info-item">
-            <span className="info-label">Fleet</span>
-            <span className="info-value">{stats.active_nodes} active nodes</span>
+          <div className="stat-card card">
+            <SpeedIcon className="stat-card__icon" />
+            <div className="stat-value">
+              {stats.avg_latency_ms > 0 ? `${stats.avg_latency_ms.toFixed(1)}` : '—'}
+              <small>ms</small>
+            </div>
+            <div className="stat-label">edge latency</div>
           </div>
-          <div className="info-item">
-            <span className="info-label">Quick start</span>
-            <span className="info-value info-value--mono">
-              ./start-lydlr.sh -d --ros2
-            </span>
+          <div className="stat-card card">
+            <SignalCellularAltIcon className="stat-card__icon" />
+            <div className="stat-value">
+              {stats.avg_quality_score > 0
+                ? `${(stats.avg_quality_score * 100).toFixed(0)}%`
+                : '—'}
+            </div>
+            <div className="stat-label">perceptual quality</div>
+          </div>
+        </div>
+
+        <div className="dashboard__fleet grid grid-2">
+          <FleetPanel
+            title="UAV fleet"
+            icon={FlightIcon}
+            variant="drone"
+            nodes={droneNodes}
+            emptyHint="Start ROS2 with --ros2 to stream UAV metrics"
+          />
+          <FleetPanel
+            title="IoT edge"
+            icon={SensorsIcon}
+            variant="iot"
+            nodes={iotNodes}
+            emptyHint="iot_gateway_01 reports on LPWAN budget"
+          />
+        </div>
+
+        <LinkBudgetPanel />
+        <RLPolicyPanel />
+
+        <div className="charts-section">
+          <div className="card chart-card">
+            <h2>
+              <HubIcon /> Live compression telemetry
+            </h2>
+            {metricsHistory.length === 0 ? (
+              <p className="chart-empty">
+                {connected
+                  ? 'Waiting for edge metrics — demo pulse will fill charts shortly'
+                  : 'API offline — start the backend to see live data'}
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={metricsHistory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
+                  <XAxis dataKey="timestamp" tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="left" />
+                  <YAxis yAxisId="right" orientation="right" />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="compression"
+                    stroke="#60a5fa"
+                    name="Compression ratio"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="latency"
+                    stroke="#34d399"
+                    name="Latency (ms)"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="quality"
+                    stroke="#fbbf24"
+                    name="Quality"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="card chart-card">
+            <h2>
+              <MemoryIcon /> Uplink efficiency
+            </h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart
+                data={[
+                  {
+                    name: 'Raw uplink',
+                    kbps: stats.estimated_uplink_saved_kbps + 400,
+                  },
+                  {
+                    name: 'After Lydlr',
+                    kbps: Math.max(400 - stats.estimated_uplink_saved_kbps, 80),
+                  },
+                ]}
+              >
+                <defs>
+                  <linearGradient id="uplinkGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="name" />
+                <YAxis unit=" kbps" />
+                <Tooltip />
+                <Area
+                  type="monotone"
+                  dataKey="kbps"
+                  stroke="#60a5fa"
+                  fill="url(#uplinkGrad)"
+                  name="Uplink"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="system-info card">
+          <h2>Edge deployment</h2>
+          <div className="info-grid">
+            <div className="info-item">
+              <span className="info-label">Control plane</span>
+              <span className={`info-value ${connected ? 'status-online' : ''}`}>
+                {connected ? '● Live' : '○ Offline'}
+              </span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">ROS 2 profile</span>
+              <span className="info-value">{stats.vertical || 'drone'}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Fleet</span>
+              <span className="info-value">{stats.active_nodes} active nodes</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Quick start</span>
+              <span className="info-value info-value--mono">
+                ./start-lydlr.sh -d --ros2
+              </span>
+            </div>
           </div>
         </div>
       </div>

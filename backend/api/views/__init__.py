@@ -42,6 +42,13 @@ from backend.api.views.metrics_views import (
 from backend.api.views.fleet_views import FleetLinkPolicyView
 from backend.api.views.federated_views import FederatedRoundDetailView, FederatedRoundListView
 from backend.api.views.deployment_views import DeploymentView, ModelRollbackView
+from backend.api.views.preview_views import (
+    NodePreviewView,
+    NodePreviewMjpegView,
+    NodeTopicsView,
+    NodePreviewLatestView,
+)
+from backend.api.views.demo_views import DemoPulseView, DemoAutopilotView
 
 __all__ = [
     # Base
@@ -86,5 +93,12 @@ __all__ = [
     # Deployment
     'DeploymentView',
     'ModelRollbackView',
+    # Preview
+    'NodePreviewView',
+    'NodePreviewMjpegView',
+    'NodeTopicsView',
+    'NodePreviewLatestView',
+    'DemoPulseView',
+    'DemoAutopilotView',
 ]
 

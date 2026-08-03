@@ -65,9 +65,15 @@ except ImportError:
 
 from lydlr_ai.model.compressor import EnhancedMultimodalCompressor
 from lydlr_ai.utils.metrics_reporter import report_metrics
+from lydlr_ai.utils.preview_reporter import report_preview
 from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
 from lydlr_ai.communication.topics import LydlrTopics
 from lydlr_ai.communication import wire
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 from lydlr_ai.communication.link_policy import (
     NodeLinkPolicy,
     vision_frame_skip,
@@ -376,6 +382,18 @@ class EdgeCompressorNode(Node):
         self.decompressed_pub = self.create_publisher(
             Float32MultiArray, f'/{node_id}/decompressed', 10
         )
+        self.preview_raw_pub = self.create_publisher(
+            Image, LydlrTopics.preview_raw(node_id), 2
+        )
+        self.preview_recon_pub = self.create_publisher(
+            Image, LydlrTopics.preview_reconstructed(node_id), 2
+        )
+        self.preview_heatmap_pub = self.create_publisher(
+            Image, LydlrTopics.preview_heatmap(node_id), 2
+        )
+        self._preview_tick = 0
+        self._preview_every_n = max(1, int(os.getenv("LYDLR_PREVIEW_EVERY_N", "5")))
+        self._preview_max_dim = int(os.getenv("LYDLR_PREVIEW_MAX_DIM", "320"))
 
         self.compression_timer = self.create_timer(0.1, self.compress_loop)
         self.bandwidth_timer = self.create_timer(1.0, self.update_bandwidth)
@@ -417,7 +435,90 @@ class EdgeCompressorNode(Node):
     def _publish_heartbeat(self):
         version = self.model_registry.model_version or ""
         self.transport.publish_heartbeat(version)
-    
+
+    def _tensor_to_rgb_u8(self, tensor) -> Optional[np.ndarray]:
+        """Convert BCHW / CHW float tensor (0-1 or -1..1) to HxWx3 uint8 RGB."""
+        if tensor is None or cv2 is None:
+            return None
+        try:
+            arr = tensor.detach().cpu().numpy() if hasattr(tensor, "detach") else np.asarray(tensor)
+            if arr.ndim == 4:
+                arr = arr[0]
+            if arr.ndim == 3 and arr.shape[0] in (1, 3):
+                arr = np.transpose(arr, (1, 2, 0))
+            if arr.ndim == 2:
+                arr = np.stack([arr, arr, arr], axis=-1)
+            if arr.shape[-1] == 1:
+                arr = np.repeat(arr, 3, axis=-1)
+            if arr.dtype != np.uint8:
+                if arr.min() < -0.01:
+                    arr = (arr + 1.0) * 0.5
+                arr = np.clip(arr, 0.0, 1.0)
+                arr = (arr * 255.0).astype(np.uint8)
+            h, w = arr.shape[:2]
+            max_dim = self._preview_max_dim
+            if max(h, w) > max_dim:
+                scale = max_dim / float(max(h, w))
+                arr = cv2.resize(
+                    arr,
+                    (max(1, int(w * scale)), max(1, int(h * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
+            return arr
+        except Exception as exc:
+            self.get_logger().debug(f"preview tensor convert failed: {exc}")
+            return None
+
+    def _rgb_to_image_msg(self, rgb: np.ndarray) -> Image:
+        msg = Image()
+        msg.height = int(rgb.shape[0])
+        msg.width = int(rgb.shape[1])
+        msg.encoding = "rgb8"
+        msg.is_bigendian = 0
+        msg.step = msg.width * 3
+        msg.data = rgb.reshape(-1).tobytes()
+        return msg
+
+    def _rgb_to_jpeg(self, rgb: np.ndarray) -> Optional[bytes]:
+        if cv2 is None or rgb is None:
+            return None
+        ok, buf = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        if not ok:
+            return None
+        return buf.tobytes()
+
+    def _publish_previews(self, raw_tensor, recon_tensor):
+        """Downscaled Image topics + HTTP JPEG ingest for the control plane."""
+        self._preview_tick += 1
+        if (self._preview_tick % self._preview_every_n) != 0:
+            return
+        raw_rgb = self._tensor_to_rgb_u8(raw_tensor)
+        recon_rgb = self._tensor_to_rgb_u8(recon_tensor)
+        if raw_rgb is None and recon_rgb is None:
+            return
+        if raw_rgb is not None:
+            self.preview_raw_pub.publish(self._rgb_to_image_msg(raw_rgb))
+            jpeg = self._rgb_to_jpeg(raw_rgb)
+            if jpeg:
+                report_preview(self.node_id, "raw", jpeg)
+        if recon_rgb is not None:
+            self.preview_recon_pub.publish(self._rgb_to_image_msg(recon_rgb))
+            jpeg = self._rgb_to_jpeg(recon_rgb)
+            if jpeg:
+                report_preview(self.node_id, "reconstructed", jpeg)
+        if raw_rgb is not None and recon_rgb is not None and cv2 is not None:
+            if raw_rgb.shape != recon_rgb.shape:
+                recon_rgb = cv2.resize(recon_rgb, (raw_rgb.shape[1], raw_rgb.shape[0]))
+            diff = cv2.absdiff(raw_rgb, recon_rgb)
+            gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
+            heat = cv2.applyColorMap(np.clip(gray.astype(np.uint16) * 4, 0, 255).astype(np.uint8), cv2.COLORMAP_JET)
+            heat_rgb = cv2.cvtColor(heat, cv2.COLOR_BGR2RGB)
+            overlay = cv2.addWeighted(raw_rgb, 0.55, heat_rgb, 0.45, 0)
+            self.preview_heatmap_pub.publish(self._rgb_to_image_msg(overlay))
+            jpeg = self._rgb_to_jpeg(overlay)
+            if jpeg:
+                report_preview(self.node_id, "heatmap", jpeg)
+
     def image_callback(self, msg):
         """Process camera image — may skip frames on IoT/LPWAN budgets."""
         self._image_tick += 1
@@ -716,6 +817,11 @@ class EdgeCompressorNode(Node):
                     input_size,
                     compression_ratio,
                 )
+
+                try:
+                    self._publish_previews(image, recon_img)
+                except Exception as preview_exc:
+                    self.get_logger().debug(f"preview publish skipped: {preview_exc}")
 
                 rl_mode = self._rl_mode
                 rl_action = self._rl_controller.action if self._rl_controller else 0.0

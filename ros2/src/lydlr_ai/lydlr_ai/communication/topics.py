@@ -70,6 +70,33 @@ class LydlrTopics:
     def heartbeat(cls, node_id: str) -> str:
         return f"{cls.node_base(node_id)}/heartbeat"
 
+    @classmethod
+    def preview_raw(cls, node_id: str) -> str:
+        return f"{cls.node_base(node_id)}/preview/raw"
+
+    @classmethod
+    def preview_reconstructed(cls, node_id: str) -> str:
+        return f"{cls.node_base(node_id)}/preview/reconstructed"
+
+    @classmethod
+    def preview_heatmap(cls, node_id: str) -> str:
+        return f"{cls.node_base(node_id)}/preview/heatmap"
+
+    @classmethod
+    def topic_catalog(cls, node_id: str) -> list:
+        """Known LYDT / preview topics for UI discovery."""
+        return [
+            {"name": cls.compressed_transport(node_id), "type": "compressed"},
+            {"name": cls.metrics_transport(node_id), "type": "metrics"},
+            {"name": cls.coordination(node_id), "type": "coordination"},
+            {"name": cls.heartbeat(node_id), "type": "heartbeat"},
+            {"name": cls.preview_raw(node_id), "type": "preview"},
+            {"name": cls.preview_reconstructed(node_id), "type": "preview"},
+            {"name": cls.preview_heatmap(node_id), "type": "preview"},
+            {"name": cls.legacy_compressed(node_id), "type": "compressed"},
+            {"name": cls.legacy_metrics(node_id), "type": "metrics"},
+        ]
+
     # Legacy aliases (backward compatible with existing tools)
     @classmethod
     def legacy_compressed(cls, node_id: str) -> str:

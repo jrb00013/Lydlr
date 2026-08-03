@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import './NodesView.css';
 import { NotificationContext, ConfirmContext } from '../App';
 import { useSmartPolling } from '../hooks/useSmartPolling';
+import { useFleetEvents } from '../hooks/useFleetEvents';
 import lydlrApi from '../api/lydlrApi';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -36,7 +37,7 @@ function NodesView() {
     max_latency_ms: 50,
   });
 
-  const fetchNodes = async () => {
+  const fetchNodes = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/nodes/`);
       const data = await response.json();
@@ -46,7 +47,13 @@ function NodesView() {
       console.error('Failed to fetch nodes:', error);
       setLoading(false);
     }
-  };
+  }, []);
+
+  const onFleetEvent = useCallback(() => {
+    fetchNodes();
+  }, [fetchNodes]);
+
+  useFleetEvents(onFleetEvent, { enabled: true });
 
   const fetchNodeConfig = async () => {
     try {
