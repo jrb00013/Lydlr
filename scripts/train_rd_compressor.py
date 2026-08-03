@@ -11,7 +11,7 @@
 """
 Train EnhancedMultimodalCompressor with the rate–distortion objective.
 
-Full real train (RTX 2060 class):
+Full real train:
   PYTHONPATH=ros2/src/lydlr_ai python3 scripts/train_rd_compressor.py --preset full
 
 Resume after interrupt:
@@ -41,6 +41,9 @@ from lydlr_ai.model.compressor import (  # noqa: E402
     compute_rd_loss,
     unpack_compressor_output,
 )
+
+sys.path.insert(0, str(ROOT / "scripts"))
+from structured_synthetic_data import init_scene, step_scene, relative_residual  # noqa: E402
 
 PRESETS = {
     "smoke": {"epochs": 1, "steps": 2, "seq_len": 1, "lambda_rd": 0.05},
@@ -180,12 +183,19 @@ def train(args: argparse.Namespace) -> Path:
         lambda_rd = args.lambda_rd * (0.5 + 0.5 * progress)
 
         for step in range(steps_per_epoch):
-            image0, lidar, imu, audio = synthetic_batch(args.batch_size, device)
+            # New clip each step: Markov scene state (see TRAINING_DATA_APPLIED_MATH.md)
+            scene = init_scene(args.batch_size, device, height=480, width=640, num_blobs=5)
             step_loss = 0.0
             step_metrics = []
+            prev_image = None
+            phi_vals = []
 
             for t in range(seq_len):
-                image = (image0 + 0.015 * (step + t)).clamp(0, 1)
+                scene, obs = step_scene(scene, cut_prob=args.cut_prob)
+                image, lidar, imu, audio = obs["image"], obs["lidar"], obs["imu"], obs["audio"]
+                if prev_image is not None:
+                    phi_vals.append(relative_residual(prev_image, image))
+                prev_image = image.detach()
                 optimizer.zero_grad(set_to_none=True)
                 packed = unpack_compressor_output(
                     model(
@@ -223,6 +233,7 @@ def train(args: argparse.Namespace) -> Path:
                 k: sum(m[k] for m in step_metrics) / len(step_metrics)
                 for k in step_metrics[0]
             }
+            avg_step["phi_residual"] = sum(phi_vals) / max(len(phi_vals), 1) if phi_vals else 0.0
             epoch_metrics.append(avg_step)
 
         avg = {
@@ -241,6 +252,7 @@ def train(args: argparse.Namespace) -> Path:
             f"epoch {epoch+1}/{epochs}  "
             f"D={avg['distortion']:.4f}  R={avg['rate_bits']:.3f}  "
             f"L={avg['total']:.4f}  λ={lambda_rd:.4f}  "
+            f"φ={avg.get('phi_residual', 0):.3f}  "
             f"{avg['sec_per_step']:.2f}s/step  "
             f"elapsed={elapsed/60:.1f}m  eta={eta/60:.1f}m",
             flush=True,
@@ -292,6 +304,7 @@ def main():
     p.add_argument("--save-every", type=int, default=10, help="checkpoint every N epochs")
     p.add_argument("--resume", type=str, default="", help="path to .pth to continue")
     p.add_argument("--cpu", action="store_true")
+    p.add_argument("--cut-prob", type=float, default=0.03, help="scene-cut probability per frame")
     p.add_argument("--smoke", action="store_true", help="one tiny epoch for CI")
     args = p.parse_args()
 

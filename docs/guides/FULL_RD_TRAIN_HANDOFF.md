@@ -119,6 +119,13 @@ Copy `lydlr_compressor_v2_full_*_final.pth` (+ matching metadata) into the node 
 
 ## After full synthetic — next upgrade (real data)
 
+Structured synthetic (band-limited scenes + shared ego-motion) is the default in
+`scripts/train_rd_compressor.py` / `eval_compression_rd.py`. See
+[TRAINING_DATA_APPLIED_MATH.md](../architecture/TRAINING_DATA_APPLIED_MATH.md).
+
+Noise-trained checkpoints are **not** comparable on PSNR — restart `--preset full`
+after pulling the structured-data change (do not resume noise weights for quality eval).
+
 Not required to finish the synthetic full train, but needed for “production”:
 
 1. Collect sequences: `ros2 launch lydlr_ai collect_training_data.launch.py`

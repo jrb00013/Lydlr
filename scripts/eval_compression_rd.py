@@ -41,6 +41,9 @@ from lydlr_ai.model.compressor import (  # noqa: E402
     unpack_compressor_output,
 )
 
+sys.path.insert(0, str(ROOT / "scripts"))
+from structured_synthetic_data import init_scene, step_scene, relative_residual  # noqa: E402
+
 
 def _psnr(a: np.ndarray, b: np.ndarray) -> float:
     mse = float(np.mean((a - b) ** 2))
@@ -81,12 +84,16 @@ def eval_model(args: argparse.Namespace) -> dict:
     model.reset_temporal_state()
 
     rows = []
+    scene = init_scene(1, device, height=480, width=640, num_blobs=5)
+    prev_image = None
+    phis = []
     with torch.no_grad():
         for t in range(args.frames):
-            image = (torch.rand(1, 3, 480, 640, device=device) + 0.015 * t).clamp(0, 1)
-            lidar = torch.rand(1, 1024, 3, device=device)
-            imu = torch.randn(1, 6, device=device)
-            audio = torch.rand(1, 128 * 128, device=device)
+            scene, obs = step_scene(scene, cut_prob=getattr(args, "cut_prob", 0.03))
+            image, lidar, imu, audio = obs["image"], obs["lidar"], obs["imu"], obs["audio"]
+            if prev_image is not None:
+                phis.append(relative_residual(prev_image, image))
+            prev_image = image
 
             t0 = time.perf_counter()
             packed = unpack_compressor_output(
@@ -146,6 +153,8 @@ def eval_model(args: argparse.Namespace) -> dict:
         "p50_latency_ms": float(np.median([r["latency_ms"] for r in rows])),
         "keyframe_fraction": float(np.mean([r["is_keyframe"] for r in rows])),
         "edge_fast": bool(args.edge_fast),
+        "mean_phi_residual": float(np.mean(phis)) if phis else 0.0,
+        "data": "structured_synthetic",
         "lambda_note": "Train with scripts/train_rd_compressor.py --lambda-rd to sweep RD curve",
         "plan": "docs/architecture/NEURAL_COMPRESSION_RD_PLAN.md",
         "frames_detail": rows,
@@ -162,6 +171,7 @@ def main():
     p.add_argument("--edge-fast", action="store_true")
     p.add_argument("--checkpoint", type=str, default="")
     p.add_argument("--cpu", action="store_true")
+    p.add_argument("--cut-prob", type=float, default=0.03)
     p.add_argument("--out", type=str, default="")
     args = p.parse_args()
 
