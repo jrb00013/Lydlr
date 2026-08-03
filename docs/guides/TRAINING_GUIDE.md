@@ -17,15 +17,18 @@ Lydlr is an AI-powered compression system that processes multimodal sensor data 
 
 ```bash
 # Smoke check
-PYTHONPATH=ros2/src/lydlr_ai python3 scripts/train_rd_compressor.py --smoke --cpu
+PYTHONPATH=ros2/src/lydlr_ai python3 scripts/train_rd_compressor.py --smoke
 
-# Short RD train (writes models/lydlr_compressor_v2_*.pth — gitignored)
-PYTHONPATH=ros2/src/lydlr_ai python3 scripts/train_rd_compressor.py --epochs 5 --steps 20 --lambda-rd 0.05
+# Full synthetic RD train (hours on GPU — see handoff doc)
+PYTHONPATH=ros2/src/lydlr_ai python3 scripts/train_rd_compressor.py --preset full
 
 # Eval harness (PSNR/SSIM/rate/latency)
-PYTHONPATH=ros2/src/lydlr_ai python3 scripts/eval_compression_rd.py --frames 16 --cpu
+PYTHONPATH=ros2/src/lydlr_ai python3 scripts/eval_compression_rd.py --frames 16 \
+  --checkpoint models/lydlr_compressor_v2_full_latest.pth
 ```
 
+Full train requirements, ETA, resume, and leave-off checklist:  
+[FULL_RD_TRAIN_HANDOFF.md](FULL_RD_TRAIN_HANDOFF.md).  
 Design notes: [NEURAL_COMPRESSION_RD_PLAN.md](../architecture/NEURAL_COMPRESSION_RD_PLAN.md).
 
 ### 1. Test with Synthetic Data (Immediate)

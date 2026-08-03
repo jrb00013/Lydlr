@@ -18,6 +18,7 @@ This directory contains all documentation for the Lydlr Revolutionary Compressio
 ### Guides
 - **[QUICK_START.md](guides/QUICK_START.md)** - Quick start guide
 - **[TRAINING_GUIDE.md](guides/TRAINING_GUIDE.md)** - Model training guide
+- **[FULL_RD_TRAIN_HANDOFF.md](guides/FULL_RD_TRAIN_HANDOFF.md)** - Full RD train requirements, ETA, resume / leave-off
 - **[WEB_INTERFACE_GUIDE.md](guides/WEB_INTERFACE_GUIDE.md)** - Web interface usage guide
 - **[INTEGRATION_GUIDE.md](guides/INTEGRATION_GUIDE.md)** - Integration guide
 - **[README_LAUNCH.md](guides/README_LAUNCH.md)** - Launch instructions
