@@ -17,8 +17,6 @@ import lpips
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import math
 
-from lydlr_ai.utils.voxel_utils import lidar_to_pointcloud
-
 # ============================================================================
 # IMPROVEMENT 1: Enhanced VAE with β-VAE and Progressive Decoding
 # ============================================================================
@@ -607,136 +605,193 @@ class QualityAssessor:
 # ============================================================================
 
 class EnhancedMultimodalCompressor(nn.Module):
-    """Enhanced multimodal compressor with all improvements"""
-    
-    def __init__(self, image_shape=(3, 480, 640), lidar_dim=1024, imu_dim=6, audio_dim=128*128):
+    """Enhanced multimodal compressor with all improvements.
+
+    Transmit path is tied to the VAE latent (mu) fused with multimodal
+    temporal features so reconstruction training and the wire code share
+    the same representation (see NEURAL_COMPRESSION_RD_PLAN.md).
+    """
+
+    def __init__(
+        self,
+        image_shape=(3, 480, 640),
+        lidar_dim=1024,
+        imu_dim=6,
+        audio_dim=128 * 128,
+        latent_dim=64,
+    ):
         super().__init__()
         channels, height, width = image_shape
-        
-        # Enhanced VAE
-        self.vae = EnhancedVAE(input_channels=channels, latent_dim=256, 
-                              input_height=height, input_width=width, beta=0.1)
-        
-        # Modality encoders
+        self.latent_dim = latent_dim
+        self.fusion_dim = 256
+
+        # Enhanced VAE — latent_dim matches wire code width
+        self.vae = EnhancedVAE(
+            input_channels=channels,
+            latent_dim=latent_dim,
+            input_height=height,
+            input_width=width,
+            beta=0.1,
+        )
+
         self.image_encoder = nn.Sequential(
             nn.Conv2d(channels, 32, 3, stride=2, padding=1),
             nn.BatchNorm2d(32), nn.ReLU(),
             nn.Conv2d(32, 64, 3, stride=2, padding=1),
             nn.BatchNorm2d(64), nn.ReLU(),
-            nn.AdaptiveAvgPool2d((4, 4))
+            nn.AdaptiveAvgPool2d((4, 4)),
         )
-        
+
         self.lidar_encoder = nn.Sequential(
             nn.Linear(lidar_dim * 3, 256),
             nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(256, 128)
+            nn.Linear(256, 128),
         )
-        
+
         self.imu_encoder = nn.Sequential(
             nn.Linear(imu_dim, 64),
             nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(64, 32)
+            nn.Linear(64, 32),
         )
-        
+
         self.audio_encoder = nn.Sequential(
             nn.Linear(audio_dim, 256),
             nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(256, 128)
-        )
-        
-        # Enhanced fusion
-        self.fusion = MultimodalFusion(
-            image_dim=1024, lidar_dim=128, imu_dim=32, audio_dim=128, fusion_dim=256
-        )
-        
-        # Delta compression
-        self.delta_compressor = DeltaCompressor(feature_dim=256, delta_dim=128)
-        
-        # Temporal modeling
-        self.temporal_transformer = TemporalTransformer(d_model=256, n_heads=8, n_layers=4)
-        
-        # Quality control
-        self.quality_controller = QualityController(feature_dim=256)
-        
-        # Final compression
-        self.compression_head = nn.Sequential(
             nn.Linear(256, 128),
-            nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(128, 64)
         )
-    
-    def forward(self, image, lidar, imu, audio, hidden_state=None, compression_level=0.8, target_quality=0.8):
+
+        self.fusion = MultimodalFusion(
+            image_dim=1024, lidar_dim=128, imu_dim=32, audio_dim=128, fusion_dim=self.fusion_dim
+        )
+
+        self.delta_compressor = DeltaCompressor(feature_dim=self.fusion_dim, delta_dim=128)
+        self.temporal_transformer = TemporalTransformer(
+            d_model=self.fusion_dim, n_heads=8, n_layers=4
+        )
+        self.quality_controller = QualityController(feature_dim=self.fusion_dim)
+
+        # Registered projection: fused temporal features → latent (never built inside loss)
+        self.temporal_to_latent = nn.Linear(self.fusion_dim, latent_dim)
+
+        # Fuse VAE mu with temporal latent into the transmitted code
+        self.transmit_fuse = nn.Sequential(
+            nn.Linear(latent_dim * 2, latent_dim),
+            nn.ReLU(),
+            nn.Linear(latent_dim, latent_dim),
+        )
+
+        # Kept for checkpoint compatibility with older compression_head weights
+        self.compression_head = nn.Sequential(
+            nn.Linear(self.fusion_dim, 128),
+            nn.ReLU(), nn.Dropout(0.1),
+            nn.Linear(128, latent_dim),
+        )
+
+    def forward(
+        self,
+        image,
+        lidar,
+        imu,
+        audio,
+        hidden_state=None,
+        compression_level=0.8,
+        target_quality=0.8,
+    ):
         batch_size = image.size(0)
-        
-        # Encode modalities
+
         img_feat = self.image_encoder(image).view(batch_size, -1)
         lidar_feat = self.lidar_encoder(lidar.view(batch_size, -1))
         imu_feat = self.imu_encoder(imu)
         audio_feat = self.audio_encoder(audio.view(batch_size, -1))
-        
-        # Multimodal fusion
+
         fused = self.fusion(img_feat, lidar_feat, imu_feat, audio_feat)
-        
-        # Delta compression (if we have previous state)
+
         if hidden_state is not None:
-            fused, predicted = self.delta_compressor(fused, hidden_state)
+            prev = hidden_state
+            if prev.dim() == 1:
+                prev = prev.unsqueeze(0)
+            if prev.size(-1) != fused.size(-1):
+                predicted = torch.zeros_like(fused)
+            else:
+                fused, predicted = self.delta_compressor(fused, prev)
         else:
             predicted = torch.zeros_like(fused)
-        
-        # Temporal modeling
-        fused_seq = fused.unsqueeze(1)  # Add time dimension
-        temporal_out = self.temporal_transformer(fused_seq)
-        temporal_out = temporal_out.squeeze(1)
-        
-        # Quality control
-        adjusted_compression, predicted_quality = self.quality_controller(temporal_out, target_quality)
-        
-        # Apply compression
-        compressed = self.compression_head(temporal_out)
-        compressed = compressed * adjusted_compression
-        
-        # VAE reconstruction for quality assessment
+
+        fused_seq = fused.unsqueeze(1)
+        temporal_out = self.temporal_transformer(fused_seq).squeeze(1)
+
+        adjusted_compression, predicted_quality = self.quality_controller(
+            temporal_out, target_quality
+        )
+
         recon_img, mu, logvar = self.vae(image, target_scale=2)
-        
-        return compressed, temporal_out, predicted, recon_img, mu, logvar, adjusted_compression, predicted_quality
+
+        temporal_latent = self.temporal_to_latent(temporal_out)
+        compressed = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
+        compressed = compressed * adjusted_compression
+
+        return (
+            compressed,
+            temporal_out,
+            predicted,
+            recon_img,
+            mu,
+            logvar,
+            adjusted_compression,
+            predicted_quality,
+        )
+
 
 # ============================================================================
 # TRAINING UTILITIES
 # ============================================================================
 
-def compute_enhanced_loss(recon_img, image, mu, logvar, compressed, temporal_out, 
-                         predicted_quality, target_quality=0.8, beta=0.1):
-    """Enhanced loss function with all components"""
-    
-    # VAE loss - compute directly since we can't call class method on instance
-    recon_loss = F.mse_loss(recon_img, image, reduction='sum')
+def compute_enhanced_loss(
+    recon_img,
+    image,
+    mu,
+    logvar,
+    compressed,
+    temporal_out,
+    predicted_quality,
+    target_quality=0.8,
+    beta=0.1,
+    temporal_to_latent=None,
+):
+    """Enhanced loss — no ad-hoc Linear created inside the loss graph."""
+
+    recon_loss = F.mse_loss(recon_img, image, reduction="sum")
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     vae_loss = recon_loss + beta * kl_loss
-    
-    # Compression loss - compare compressed output with temporal features
-    # Project temporal_out to match compressed dimensions if needed
-    if temporal_out.size(1) != compressed.size(1):
-        projection = nn.Linear(temporal_out.size(1), compressed.size(1)).to(temporal_out.device)
-        temporal_proj = projection(temporal_out)
+
+    # Transmitted code should stay aligned with VAE mu (shared latent path)
+    latent_consistency = F.mse_loss(compressed, mu)
+
+    if temporal_to_latent is not None:
+        temporal_latent = temporal_to_latent(temporal_out)
+        temporal_consistency = F.mse_loss(temporal_latent, compressed.detach())
+    elif temporal_out.size(-1) == compressed.size(-1):
+        temporal_consistency = F.mse_loss(temporal_out, compressed.detach())
     else:
-        temporal_proj = temporal_out
-    
-    compression_loss = F.mse_loss(compressed, temporal_proj)
-    
-    # Quality loss
-    quality_loss = F.mse_loss(predicted_quality, torch.full_like(predicted_quality, target_quality))
-    
-    # Rate-distortion loss
-    rate_loss = torch.sum(compressed.abs()) * 0.01  # L1 regularization
-    
-    # Total loss
+        temporal_consistency = compressed.new_tensor(0.0)
+
+    compression_loss = latent_consistency + 0.5 * temporal_consistency
+
+    quality_loss = F.mse_loss(
+        predicted_quality, torch.full_like(predicted_quality, target_quality)
+    )
+
+    # Placeholder rate until NeuralQuantizer entropy is wired
+    rate_loss = torch.mean(compressed.abs()) * 0.01
+
     total_loss = vae_loss + compression_loss + quality_loss + rate_loss
-    
+
     return total_loss, {
-        'vae_loss': vae_loss.item(),
-        'recon_loss': recon_loss.item(),
-        'kl_loss': kl_loss.item(),
-        'compression_loss': compression_loss.item(),
-        'quality_loss': quality_loss.item(),
-        'rate_loss': rate_loss.item()
+        "vae_loss": float(vae_loss.detach()),
+        "recon_loss": float(recon_loss.detach()),
+        "kl_loss": float(kl_loss.detach()),
+        "compression_loss": float(compression_loss.detach()),
+        "quality_loss": float(quality_loss.detach()),
+        "rate_loss": float(rate_loss.detach()),
+        "latent_consistency": float(latent_consistency.detach()),
     }
