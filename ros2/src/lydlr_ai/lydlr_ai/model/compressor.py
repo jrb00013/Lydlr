@@ -8,14 +8,28 @@
 # (at your option) any later version.
 
 # Enhanced Multimodal Compressor with all improvements
-import psutil
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
-import lpips 
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
-import math
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
+
+try:
+    import lpips
+except ImportError:  # pragma: no cover
+    lpips = None
+
+try:
+    from skimage.metrics import peak_signal_noise_ratio, structural_similarity
+except ImportError:  # pragma: no cover
+    peak_signal_noise_ratio = None
+    structural_similarity = None
 
 try:
     from lydlr_ai.model.advanced_compression_models import (
@@ -95,8 +109,10 @@ class EnhancedVAE(nn.Module):
         ])
         
         # Add final resize to ensure correct output dimensions
+        self.input_height = input_height
+        self.input_width = input_width
         self.final_resize = nn.AdaptiveAvgPool2d((input_height, input_width))
-    
+
     def encode(self, x):
         """Encode input to latent space"""
         features = self.encoder(x)
@@ -118,29 +134,49 @@ class EnhancedVAE(nn.Module):
             return mu
     
     def decode_progressive(self, z, target_scale=2):
-        """Progressive decoding with quality control"""
+        """Progressive decoding with quality control.
+
+        Each decoder stage is two stride-2 ConvTranspose2d (×4 spatial). From a
+        15×20 ResNet map, a naive target_scale=2 lands at ~960×1280 before pooling
+        — that overshoot has hard-hung Jetson Orin under first-touch CUDA.
+
+        If the next stage would exceed the configured H×W, bilinear-shrink the
+        feature map first so ×4 lands on-target (still runs the RGB head weights).
+        """
         x = self.decoder_fc(z)
-        x = x.view(x.size(0), self.encoder_channels, self.encoder_height, self.encoder_width)  # Reshape to feature map
-        
+        x = x.view(x.size(0), self.encoder_channels, self.encoder_height, self.encoder_width)
+
         outputs = []
         current = x
-        
+        th = getattr(self, "input_height", 480)
+        tw = getattr(self, "input_width", 640)
+
         for i, (decoder, fusion) in enumerate(zip(self.decoder_conv, self.scale_fusion)):
+            next_h = current.size(-2) * 4
+            next_w = current.size(-1) * 4
+            if next_h > th or next_w > tw:
+                current = F.interpolate(
+                    current,
+                    size=(max(th // 4, 1), max(tw // 4, 1)),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+
             current = decoder(current)
-            # Only apply fusion if dimensions match
-            if i < len(self.scale_fusion) and current.size(1) == self.scale_fusion[i].in_channels:
+            if current.size(1) == fusion.in_channels:
                 current = fusion(current)
             outputs.append(current)
-            
-            if i == target_scale:  # Stop at target scale
+
+            if i == target_scale:
                 break
-        
+
         final_output = outputs[-1] if outputs else current
-        # Ensure final output matches expected dimensions
-        if hasattr(self, 'final_resize'):
-            final_output = self.final_resize(final_output)
+        if final_output.shape[-2:] != (th, tw):
+            final_output = F.interpolate(
+                final_output, size=(th, tw), mode="bilinear", align_corners=False
+            )
         return final_output
-    
+
     def forward(self, x, target_scale=2):
         """Forward pass with progressive decoding"""
         mu, logvar = self.encode(x)
@@ -601,22 +637,28 @@ class VAE(nn.Module):
 
 class QualityAssessor:
     def __init__(self, device='cpu'):
+        if lpips is None:
+            raise ImportError("lpips is required for QualityAssessor")
         self.loss_fn = lpips.LPIPS(net='alex').to(device)
         self.device = device
 
     def assess(self, img1, img2):
-        img1_np = img1.squeeze().permute(1,2,0).cpu().numpy()
-        img2_np = img2.squeeze().permute(1,2,0).cpu().numpy()
+        img1_np = img1.squeeze().permute(1, 2, 0).cpu().numpy()
+        img2_np = img2.squeeze().permute(1, 2, 0).cpu().numpy()
 
-        psnr = peak_signal_noise_ratio(img1_np, img2_np, data_range=1.0)
-        ssim = structural_similarity(img1_np, img2_np, multichannel=True)
+        psnr = (
+            peak_signal_noise_ratio(img1_np, img2_np, data_range=1.0)
+            if peak_signal_noise_ratio is not None
+            else float("nan")
+        )
+        ssim = (
+            structural_similarity(img1_np, img2_np, multichannel=True)
+            if structural_similarity is not None
+            else float("nan")
+        )
 
         lpips_score = self.loss_fn((img1 * 2 - 1), (img2 * 2 - 1)).mean().item()
-        return {
-        "lpips": lpips_score,
-        "psnr": psnr,
-        "ssim": ssim
-        }
+        return {"lpips": lpips_score, "psnr": psnr, "ssim": ssim}
 
 # ============================================================================
 # MAIN ENHANCED COMPRESSOR
@@ -831,7 +873,8 @@ class EnhancedMultimodalCompressor(nn.Module):
             temporal_out, target_quality
         )
 
-        # Always decode full RGB for distortion; edge_fast only skips attention/scales
+        # Always use full progressive path for RGB head; decode_progressive itself
+        # prevents the ~960×1280 Jetson overshoot by pre-shrinking before the last stage.
         recon_img, mu, logvar = self.vae(image, target_scale=2)
 
         temporal_latent = self.temporal_to_latent(temporal_out)

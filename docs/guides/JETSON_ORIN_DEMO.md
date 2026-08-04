@@ -52,21 +52,38 @@ rsync -av models/node_0/lydlr_compressor_v2_full.pth orin:/opt/lydlr/models/node
 
 ---
 
+## Crash lessons (do this first)
+
+Full `480×640` eval previously **hard-hung** an AGX Orin (network death, no SSH). Likely cause: VAE progressive decode with `target_scale=2` ran six stride-2 transposed convs from a `15×20` map → **~960×1280** intermediates before pooling back to 480×640, plus first-touch CUDA/cuDNN. That is a GPU/power footgun, not “Orin can’t run Lydlr.”
+
+**Before any demo load:**
+
+```bash
+cd ~/Lydlr && git pull
+export PATH="$HOME/.local/bin:$PATH" PYTHONPATH=ros2/src/lydlr_ai
+python3 scripts/orin_safe_probe.py --level 3   # stop if this dies
+# only then:
+python3 scripts/orin_safe_probe.py --level 5
+```
+
+`edge_fast` now caps VAE progressive scale so we do **not** materialize 960×1280 on the edge path.
+
 ## On the Orin
 
 1. **JetPack** with CUDA + (optional) TensorRT `trtexec`.
-2. Build engine (fp16 recommended):
+2. Run `orin_safe_probe.py` levels 0→5 (above).
+3. Build engine (fp16 recommended) only after probes pass:
    ```bash
    ./scripts/build_tensorrt_engine.sh /opt/lydlr/deploy_bundles/jetson_v2_full fp16
    ```
-3. **PyTorch edge path** (simplest first demo):
+4. **PyTorch edge path** (simplest first demo):
    ```bash
    export NODE_ID=node_0
    export PYTHONPATH=ros2/src/lydlr_ai
    # Ensure models/node_0/lydlr_compressor_v2_full.pth exists
    ros2 run lydlr_ai edge_compressor_node
    ```
-4. **ONNX/TRT path** when `trt_inference_node` is configured:
+5. **ONNX/TRT path** when `trt_inference_node` is configured:
    ```bash
    export INFERENCE_BACKEND=onnx   # or tensorrt
    export LYDLR_DEPLOY_BUNDLE=/opt/lydlr/deploy_bundles/jetson_v2_full
