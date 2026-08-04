@@ -66,13 +66,18 @@ export PATH="$HOME/.local/bin:$PATH" PYTHONPATH=ros2/src/lydlr_ai
 # Optional: feed the main dashboard
 export LYDLR_API_URL=http://<dev-machine-or-orin>:8000/api
 
-# CSI IMX477 is often sensor-id 0 / /dev/video0; USB Arducam may be /dev/video1
+# CSI IMX477 is often /dev/video0; USB Arducam may be /dev/video1.
+# Prefer V4L2 index first. Use --camera csi0 only if V4L2 fails.
 python3 scripts/orin_live_imx_demo.py \
   --checkpoint models/lydlr_compressor_v2_full_latest.pth \
   --camera 0 --port 8765
+# USB IMX alternate:
+# python3 scripts/orin_live_imx_demo.py --camera 1 --port 8765
 ```
 
 Open **`http://<orin-ip>:8765/`** for realtime raw | VAE recon | heatmap + Rtrue/PSNR/latency.
+
+**Bring-up order (don’t skip):** models load → camera open → first frames. Avoid starting Argus CSI while also slamming first CUDA load; the demo loads models *before* opening the camera.
 
 **Hybrid (Orin-safe):** CUDA compress with `skip_recon`; **CPU** runs full VAE decode for visualization/eval PSNR so we do not re-trigger the CUDA ConvTranspose hang.
 

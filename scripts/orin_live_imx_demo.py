@@ -95,29 +95,38 @@ STATE = LiveState()
 
 
 def _gst_pipelines(camera: str, width: int, height: int) -> list:
-    """Candidate OpenCV capture pipelines for Jetson IMX / V4L2."""
+    """Candidate OpenCV capture pipelines for Jetson IMX / V4L2.
+
+    Prefer plain V4L2 first — nvarguscamerasrc has hard-hung bring-up on this Orin
+    when combined with first CUDA model load.
+    """
     pipes = []
-    if camera.startswith("csi") or camera in ("0", "nvargus0"):
-        sensor = "0" if camera in ("0", "nvargus0", "csi") else camera.replace("csi", "")
-        pipes.append(
-            f"nvarguscamerasrc sensor-id={sensor} ! "
-            f"video/x-raw(memory:NVMM),width=1920,height=1080,framerate=30/1 ! "
-            f"nvvidconv ! video/x-raw,width={width},height={height},format=BGRx ! "
-            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1"
-        )
-    # V4L2 device index or path
+    # V4L2 device index or path FIRST
     if camera.isdigit():
         pipes.append(int(camera))
         pipes.append(
             f"v4l2src device=/dev/video{camera} ! "
             f"video/x-raw,width={width},height={height} ! "
-            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1"
+            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1 sync=false"
         )
     if camera.startswith("/dev/video"):
         pipes.append(camera)
         pipes.append(
             f"v4l2src device={camera} ! videoconvert ! "
-            f"video/x-raw,format=BGR ! appsink drop=1"
+            f"video/x-raw,format=BGR ! appsink drop=1 sync=false"
+        )
+    # CSI via Argus last (can wedge the board if ISP/GPU already busy)
+    if camera.startswith("csi") or camera in ("0", "nvargus0") or camera.isdigit():
+        sensor = "0"
+        if camera.startswith("csi"):
+            sensor = camera.replace("csi", "") or "0"
+        elif camera.isdigit():
+            sensor = camera
+        pipes.append(
+            f"nvarguscamerasrc sensor-id={sensor} ! "
+            f"video/x-raw(memory:NVMM),width=1920,height=1080,framerate=30/1 ! "
+            f"nvvidconv ! video/x-raw,width={width},height={height},format=BGRx ! "
+            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1 sync=false"
         )
     return pipes
 
@@ -125,6 +134,7 @@ def _gst_pipelines(camera: str, width: int, height: int) -> list:
 def open_camera(camera: str, width: int, height: int) -> cv2.VideoCapture:
     last_err = None
     for pipe in _gst_pipelines(camera, width, height):
+        print(f"trying_camera pipe={pipe!r}", flush=True)
         try:
             if isinstance(pipe, int):
                 cap = cv2.VideoCapture(pipe)
@@ -133,9 +143,8 @@ def open_camera(camera: str, width: int, height: int) -> cv2.VideoCapture:
             else:
                 cap = cv2.VideoCapture(pipe, cv2.CAP_GSTREAMER)
             if cap is not None and cap.isOpened():
-                # Prefer trained geometry when V4L2 allows
-                if isinstance(pipe, (int, str)) and (
-                    isinstance(pipe, int) or pipe.startswith("/dev/")
+                if isinstance(pipe, int) or (
+                    isinstance(pipe, str) and pipe.startswith("/dev/")
                 ):
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -143,9 +152,11 @@ def open_camera(camera: str, width: int, height: int) -> cv2.VideoCapture:
                 if ok and frame is not None:
                     print(f"camera_ok pipe={pipe!r} shape={frame.shape}", flush=True)
                     return cap
+                print(f"camera_opened_but_no_frame pipe={pipe!r}", flush=True)
                 cap.release()
         except Exception as exc:
             last_err = exc
+            print(f"camera_fail pipe={pipe!r} err={exc}", flush=True)
     raise SystemExit(f"Could not open camera={camera!r} (last_err={last_err})")
 
 
@@ -344,7 +355,9 @@ def make_handler():
 def inference_loop(args, stop: threading.Event):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     print(f"device={device}", flush=True)
+    print("loading_models…", flush=True)
     model, vae_cpu = load_models(Path(args.checkpoint), device)
+    print("models_ready — opening camera", flush=True)
     cap = open_camera(args.camera, args.width, args.height)
     h, w = args.height, args.width
     frame_i = 0
