@@ -52,6 +52,36 @@ rsync -av models/node_0/lydlr_compressor_v2_full.pth orin:/opt/lydlr/models/node
 
 ---
 
+## Live IMX + realtime visualization
+
+You already have **Visual Monitoring** in the Lydlr frontend (`VisualMonitoring.js`) fed by:
+- `POST /api/nodes/<id>/preview/` (raw / reconstructed / heatmap JPEGs)
+- metrics WebSocket / REST
+
+What’s new for Orin is the **live bridge**:
+
+```bash
+cd ~/Lydlr && git pull
+export PATH="$HOME/.local/bin:$PATH" PYTHONPATH=ros2/src/lydlr_ai
+# Optional: feed the main dashboard
+export LYDLR_API_URL=http://<dev-machine-or-orin>:8000/api
+
+# CSI IMX477 is often sensor-id 0 / /dev/video0; USB Arducam may be /dev/video1
+python3 scripts/orin_live_imx_demo.py \
+  --checkpoint models/lydlr_compressor_v2_full_latest.pth \
+  --camera 0 --port 8765
+```
+
+Open **`http://<orin-ip>:8765/`** for realtime raw | VAE recon | heatmap + Rtrue/PSNR/latency.
+
+**Hybrid (Orin-safe):** CUDA compress with `skip_recon`; **CPU** runs full VAE decode for visualization/eval PSNR so we do not re-trigger the CUDA ConvTranspose hang.
+
+| Piece | Role |
+|-------|------|
+| `scripts/orin_live_imx_demo.py` | Live IMX + hybrid recon + local MJPEG viz |
+| Frontend Visual Monitoring | Fleet charts + MJPEG when API is fed |
+| `edge_compressor_node` previews | Same JPEG sides over ROS / API |
+
 ## Crash lessons (do this first)
 
 Full `480×640` **CUDA + VAE decode** previously **hard-hung** an AGX Orin (network death, no SSH). CPU path was fine. Suspects: first-touch cuDNN on ResNet + ConvTranspose, desktop DRM conflict, and a progressive decode that overshot to ~960×1280.

@@ -413,6 +413,7 @@ class EdgeCompressorNode(Node):
         self._preview_tick = 0
         self._preview_every_n = max(1, int(os.getenv("LYDLR_PREVIEW_EVERY_N", "5")))
         self._preview_max_dim = int(os.getenv("LYDLR_PREVIEW_MAX_DIM", "320"))
+        self._vae_cpu = None
 
         self.compression_timer = self.create_timer(0.1, self.compress_loop)
         self.bandwidth_timer = self.create_timer(1.0, self.update_bandwidth)
@@ -776,11 +777,33 @@ class EdgeCompressorNode(Node):
                             compression_level=self.bandwidth_estimate,
                             target_quality=0.8,
                             edge_fast=edge_fast,
+                            skip_recon=True,
                         )
                     )
                     compressed = packed["compressed"]
                     temporal_out = packed["temporal_out"]
+                    # Hybrid: GPU encode survived Orin; CPU VAE decode for preview/recon
                     recon_img = packed["recon_img"]
+                    try:
+                        vae = self.multimodal_compressor.vae
+                        mu_c = packed["mu"].detach().float().cpu()
+                        lv_c = packed["logvar"].detach().float().cpu()
+                        was_cuda = next(vae.parameters()).is_cuda
+                        if was_cuda:
+                            # decode on CPU copy of weights (module stays on GPU for next encode)
+                            import copy
+
+                            if not hasattr(self, "_vae_cpu") or self._vae_cpu is None:
+                                self._vae_cpu = copy.deepcopy(vae).cpu().eval()
+                            with torch.no_grad():
+                                z = self._vae_cpu.reparameterize(mu_c, lv_c)
+                                recon_img = self._vae_cpu.decode_progressive(z, target_scale=2)
+                        else:
+                            with torch.no_grad():
+                                z = vae.reparameterize(mu_c, lv_c)
+                                recon_img = vae.decode_progressive(z, target_scale=2)
+                    except Exception as recon_exc:
+                        self.get_logger().debug(f"cpu recon skipped: {recon_exc}")
                     predicted_quality = packed["predicted_quality"]
                     rate_bits = packed["rate_bits"]
                     quant_indices = packed.get("quant_indices")
