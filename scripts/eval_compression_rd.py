@@ -76,6 +76,10 @@ def eval_model(args: argparse.Namespace) -> dict:
         history_len=args.history_len,
         keyframe_period=args.keyframe_period,
         edge_fast=args.edge_fast,
+        # Eval needs recon for PSNR unless explicitly skipped
+        skip_recon=bool(getattr(args, "skip_recon", False)),
+        use_fp16=bool(getattr(args, "fp16", False)),
+        pretrained_backbone=False,
     ).to(device)
 
     if args.checkpoint:
@@ -108,6 +112,7 @@ def eval_model(args: argparse.Namespace) -> dict:
                     audio,
                     target_quality=args.target_quality,
                     edge_fast=args.edge_fast,
+                    skip_recon=bool(args.skip_recon),
                 )
             )
             if device.type == "cuda":
@@ -192,6 +197,12 @@ def main():
     p.add_argument("--keyframe-period", type=int, default=8)
     p.add_argument("--target-quality", type=float, default=0.8)
     p.add_argument("--edge-fast", action="store_true")
+    p.add_argument(
+        "--skip-recon",
+        action="store_true",
+        help="Uplink-only path (no VAE decode). Use on Jetson for latency/stability.",
+    )
+    p.add_argument("--fp16", action="store_true", help="Autocast fp16 on CUDA")
     p.add_argument("--checkpoint", type=str, default="")
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--cut-prob", type=float, default=0.03)

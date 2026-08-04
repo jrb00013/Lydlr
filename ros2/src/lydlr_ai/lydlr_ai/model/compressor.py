@@ -50,26 +50,70 @@ except ImportError:  # pragma: no cover
 # IMPROVEMENT 1: Enhanced VAE with β-VAE and Progressive Decoding
 # ============================================================================
 
+def configure_jetson_runtime(fp16: bool = True) -> dict:
+    """Stabilize PyTorch CUDA on Jetson-class devices before first big forward.
+
+    First-touch full compressor forwards have hard-hung AGX Orin (network death).
+    Prefer: cudnn.benchmark off, lazy module loading, optional fp16 autocast.
+    """
+    cfg = {"fp16": bool(fp16), "cuda": bool(torch.cuda.is_available())}
+    if not cfg["cuda"]:
+        return cfg
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    # Reduce surprise algorithm search on unusual ConvTranspose shapes
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+    except Exception:
+        pass
+    try:
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+    return cfg
+
+
 class EnhancedVAE(nn.Module):
     """Enhanced VAE with ResNet18 backbone and progressive decoding"""
     
-    def __init__(self, input_channels=3, latent_dim=256, input_height=480, input_width=640, beta=1.0):
+    def __init__(
+        self,
+        input_channels=3,
+        latent_dim=256,
+        input_height=480,
+        input_width=640,
+        beta=1.0,
+        pretrained_backbone: bool = False,
+    ):
         super().__init__()
         self.latent_dim = latent_dim
         self.beta = beta
         
-        # Encoder: ResNet18 backbone (fine-tunable)
-        resnet = models.resnet18(pretrained=True)
+        # Encoder: ResNet18 backbone. Default pretrained=False — production loads
+        # fine-tuned weights from checkpoint; ImageNet download/init spikes Jetson bring-up.
+        try:
+            weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained_backbone else None
+            resnet = models.resnet18(weights=weights)
+        except TypeError:
+            resnet = models.resnet18(pretrained=pretrained_backbone)
         self.encoder = nn.Sequential(*list(resnet.children())[:-2])  # Remove final layers
         
-        # Calculate feature dimensions
-        with torch.no_grad():
-            dummy_input = torch.randn(1, input_channels, input_height, input_width)
-            features = self.encoder(dummy_input)
-            self.feature_dim = features.shape[1] * features.shape[2] * features.shape[3]
-            self.encoder_channels = features.shape[1]  # This should be 512 for ResNet18
-            self.encoder_height = features.shape[2]    # This should be 15 for 480x640 input
-            self.encoder_width = features.shape[3]     # This should be 20 for 480x640 input
+        # ResNet18 stride-32 map for the trained 480×640 operating point.
+        # Avoid a full-res dummy CUDA/CPU forward during __init__ on edge devices.
+        if input_height == 480 and input_width == 640:
+            self.encoder_channels = 512
+            self.encoder_height = 15
+            self.encoder_width = 20
+            self.feature_dim = self.encoder_channels * self.encoder_height * self.encoder_width
+        else:
+            with torch.no_grad():
+                dummy_input = torch.zeros(1, input_channels, input_height, input_width)
+                features = self.encoder(dummy_input)
+                self.feature_dim = features.shape[1] * features.shape[2] * features.shape[3]
+                self.encoder_channels = features.shape[1]
+                self.encoder_height = features.shape[2]
+                self.encoder_width = features.shape[3]
         
         # VAE bottleneck
         self.fc_mu = nn.Linear(self.feature_dim, latent_dim)
@@ -353,13 +397,14 @@ class TemporalTransformer(nn.Module):
         # Positional encoding
         self.pos_encoding = nn.Parameter(torch.randn(1, max_seq_len, d_model))
         
-        # Transformer layers
+        # batch_first avoids seq/batch transpose (cheaper + quieter on Jetson)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, 
-            nhead=n_heads, 
+            d_model=d_model,
+            nhead=n_heads,
             dim_feedforward=d_model * 4,
             dropout=0.1,
-            activation='gelu'
+            activation="gelu",
+            batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
         
@@ -370,12 +415,7 @@ class TemporalTransformer(nn.Module):
         # Add positional encoding
         seq_len = x.size(1)
         x = x + self.pos_encoding[:, :seq_len, :]
-        
-        # Apply transformer
-        x = x.transpose(0, 1)  # Transformer expects (seq_len, batch, features)
         output = self.transformer(x, mask=mask)
-        output = output.transpose(0, 1)  # Back to (batch, seq_len, features)
-        
         return self.output_proj(output)
 
 # ============================================================================
@@ -709,6 +749,9 @@ class EnhancedMultimodalCompressor(nn.Module):
         history_len: int = 4,
         keyframe_period: int = 8,
         edge_fast: bool = False,
+        skip_recon: bool = None,
+        use_fp16: bool = None,
+        pretrained_backbone: bool = False,
     ):
         super().__init__()
         channels, height, width = image_shape
@@ -717,6 +760,10 @@ class EnhancedMultimodalCompressor(nn.Module):
         self.history_len = history_len
         self.keyframe_period = keyframe_period
         self.edge_fast = edge_fast
+        # Uplink/edge: skip VAE decode by default when edge_fast (ConvTranspose was a
+        # Jetson hang suspect). Eval/training pass skip_recon=False explicitly.
+        self.skip_recon = (True if edge_fast else False) if skip_recon is None else bool(skip_recon)
+        self.use_fp16 = (True if edge_fast else False) if use_fp16 is None else bool(use_fp16)
         self._frame_index = 0
 
         self.vae = EnhancedVAE(
@@ -725,6 +772,7 @@ class EnhancedMultimodalCompressor(nn.Module):
             input_height=height,
             input_width=width,
             beta=0.1,
+            pretrained_backbone=pretrained_backbone,
         )
 
         self.image_encoder = nn.Sequential(
@@ -760,8 +808,9 @@ class EnhancedMultimodalCompressor(nn.Module):
         self.delta_compressor = DeltaCompressor(feature_dim=self.fusion_dim, delta_dim=128)
 
         n_layers = 2 if edge_fast else 4
+        n_heads = 4 if edge_fast else 8
         self.temporal_transformer = TemporalTransformer(
-            d_model=self.fusion_dim, n_heads=8, n_layers=n_layers
+            d_model=self.fusion_dim, n_heads=n_heads, n_layers=n_layers
         )
         self.quality_controller = QualityController(feature_dim=self.fusion_dim)
 
@@ -817,9 +866,47 @@ class EnhancedMultimodalCompressor(nn.Module):
         compression_level=0.8,
         target_quality=0.8,
         edge_fast=None,
+        skip_recon=None,
     ):
         batch_size = image.size(0)
         fast = self.edge_fast if edge_fast is None else bool(edge_fast)
+        no_recon = self.skip_recon if skip_recon is None else bool(skip_recon)
+        use_amp = (
+            self.use_fp16
+            and image.is_cuda
+            and torch.cuda.is_available()
+        )
+
+        def _body():
+            return self._forward_impl(
+                image,
+                lidar,
+                imu,
+                audio,
+                hidden_state=hidden_state,
+                target_quality=target_quality,
+                fast=fast,
+                no_recon=no_recon,
+            )
+
+        if use_amp:
+            with torch.cuda.amp.autocast(dtype=torch.float16):
+                return _body()
+        return _body()
+
+    def _forward_impl(
+        self,
+        image,
+        lidar,
+        imu,
+        audio,
+        *,
+        hidden_state,
+        target_quality,
+        fast,
+        no_recon,
+    ):
+        batch_size = image.size(0)
 
         img_feat = self.image_encoder(image).view(batch_size, -1)
         lidar_feat = self.lidar_encoder(lidar.view(batch_size, -1))
@@ -873,9 +960,13 @@ class EnhancedMultimodalCompressor(nn.Module):
             temporal_out, target_quality
         )
 
-        # Always use full progressive path for RGB head; decode_progressive itself
-        # prevents the ~960×1280 Jetson overshoot by pre-shrinking before the last stage.
-        recon_img, mu, logvar = self.vae(image, target_scale=2)
+        # Edge uplink: encode-only (skip ConvTranspose decode). Full recon for train/eval.
+        if no_recon:
+            mu, logvar = self.vae.encode(image)
+            recon_img = image.new_zeros(image.shape)
+        else:
+            # decode_progressive caps ~960×1280 overshoot for Jetson safety
+            recon_img, mu, logvar = self.vae(image, target_scale=2)
 
         temporal_latent = self.temporal_to_latent(temporal_out)
         continuous = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
@@ -885,7 +976,9 @@ class EnhancedMultimodalCompressor(nn.Module):
         rate_bits = continuous.new_zeros(batch_size)
         quant_indices = None
         if self.quantizer is not None and self.entropy_coder is not None:
-            quantized, quant_indices, soft = self.quantizer(torch.tanh(continuous))
+            # Entropy path is fp32-friendlier; cast if autocast produced fp16
+            cont_q = continuous.float() if continuous.dtype != torch.float32 else continuous
+            quantized, quant_indices, soft = self.quantizer(torch.tanh(cont_q))
             entropy, _probs = self.entropy_coder(quantized, soft_assignments=soft)
             rate_bits = entropy  # differentiable proxy bits per sample (batch,)
             compressed = quantized

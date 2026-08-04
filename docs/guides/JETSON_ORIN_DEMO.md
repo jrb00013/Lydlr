@@ -54,19 +54,38 @@ rsync -av models/node_0/lydlr_compressor_v2_full.pth orin:/opt/lydlr/models/node
 
 ## Crash lessons (do this first)
 
-Full `480×640` eval previously **hard-hung** an AGX Orin (network death, no SSH). Likely cause: VAE progressive decode with `target_scale=2` ran six stride-2 transposed convs from a `15×20` map → **~960×1280** intermediates before pooling back to 480×640, plus first-touch CUDA/cuDNN. That is a GPU/power footgun, not “Orin can’t run Lydlr.”
+Full `480×640` **CUDA + VAE decode** previously **hard-hung** an AGX Orin (network death, no SSH). CPU path was fine. Suspects: first-touch cuDNN on ResNet + ConvTranspose, desktop DRM conflict, and a progressive decode that overshot to ~960×1280.
+
+**Mitigations in code (`edge_fast`):**
+- `skip_recon=True` by default (encode/quantize uplink only — no ConvTranspose decode on device)
+- `use_fp16=True` autocast on CUDA
+- `pretrained_backbone=False` (no ImageNet download at init)
+- hardcoded 480×640 ResNet map dims (no dummy full-res init forward)
+- `configure_jetson_runtime()` — cudnn.benchmark off
+- progressive decode caps spatial overshoot when recon is enabled
 
 **Before any demo load:**
 
 ```bash
 cd ~/Lydlr && git pull
 export PATH="$HOME/.local/bin:$PATH" PYTHONPATH=ros2/src/lydlr_ai
-python3 scripts/orin_safe_probe.py --level 3   # stop if this dies
-# only then:
-python3 scripts/orin_safe_probe.py --level 5
+python3 scripts/orin_safe_probe.py --level 3   # CUDA uplink path (skip_recon)
+# only if that survives:
+python3 scripts/orin_safe_probe.py --level 5   # adds full recon — optional
 ```
 
-`edge_fast` now caps VAE progressive scale so we do **not** materialize 960×1280 on the edge path.
+Eval with metrics needs recon:
+
+```bash
+python3 scripts/eval_compression_rd.py --checkpoint models/lydlr_compressor_v2_full_latest.pth \
+  --frames 4 --edge-fast --fp16   # skip_recon OFF → PSNR meaningful
+```
+
+Uplink-only latency:
+
+```bash
+python3 scripts/eval_compression_rd.py ... --edge-fast --skip-recon --fp16
+```
 
 ## On the Orin
 

@@ -63,7 +63,11 @@ try:
 except ImportError:
     psutil = None
 
-from lydlr_ai.model.compressor import EnhancedMultimodalCompressor, unpack_compressor_output
+from lydlr_ai.model.compressor import (
+    EnhancedMultimodalCompressor,
+    unpack_compressor_output,
+    configure_jetson_runtime,
+)
 from lydlr_ai.model.true_rate import rate_report
 from lydlr_ai.utils.metrics_reporter import report_metrics
 from lydlr_ai.utils.preview_reporter import report_preview
@@ -131,8 +135,15 @@ class ModelRegistry:
                 # Load model
                 checkpoint = torch.load(model_path, map_location=self.device)
                 
-                # Initialize model architecture
-                model = EnhancedMultimodalCompressor().to(self.device)
+                # Initialize edge-tuned architecture (skip_recon + fp16 on CUDA)
+                if self.device.type == "cuda":
+                    configure_jetson_runtime(fp16=True)
+                model = EnhancedMultimodalCompressor(
+                    edge_fast=True,
+                    skip_recon=True,
+                    use_fp16=self.device.type == "cuda",
+                    pretrained_backbone=False,
+                ).to(self.device)
                 missing, unexpected = model.load_state_dict(
                     checkpoint['model_state_dict'], strict=False
                 )
