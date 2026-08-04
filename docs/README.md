@@ -8,6 +8,7 @@ This directory contains all documentation for the Lydlr Revolutionary Compressio
 - **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - System architecture overview
 - **[DESIGN_WALKTHROUGH.md](architecture/DESIGN_WALKTHROUGH.md)** - Detailed design walkthrough
 - **[NEURAL_COMPRESSION_RD_PLAN.md](architecture/NEURAL_COMPRESSION_RD_PLAN.md)** - Rate–distortion design + implementation plan
+- **[TRUE_RATE_APPLIED_MATH.md](architecture/TRUE_RATE_APPLIED_MATH.md)** - Proxy entropy vs countable wire bits
 - **[TRAINING_DATA_APPLIED_MATH.md](architecture/TRAINING_DATA_APPLIED_MATH.md)** - Why noise failed; structured synthetic data invariants
 - **[RD_STABILITY_APPLIED_MATH.md](architecture/RD_STABILITY_APPLIED_MATH.md)** - Why D spiked; bounded KL / dimensionless rate
 - **[DATA_LAYER.md](architecture/DATA_LAYER.md)** - Data layer
@@ -21,6 +22,7 @@ This directory contains all documentation for the Lydlr Revolutionary Compressio
 - **[QUICK_START.md](guides/QUICK_START.md)** - Quick start guide
 - **[TRAINING_GUIDE.md](guides/TRAINING_GUIDE.md)** - Model training guide
 - **[FULL_RD_TRAIN_HANDOFF.md](guides/FULL_RD_TRAIN_HANDOFF.md)** - Full RD train requirements, ETA, resume / leave-off
+- **[JETSON_ORIN_DEMO.md](guides/JETSON_ORIN_DEMO.md)** - Orin deploy: edge install, ONNX/TRT, true-rate claims
 - **[WEB_INTERFACE_GUIDE.md](guides/WEB_INTERFACE_GUIDE.md)** - Web interface usage guide
 - **[INTEGRATION_GUIDE.md](guides/INTEGRATION_GUIDE.md)** - Integration guide
 - **[README_LAUNCH.md](guides/README_LAUNCH.md)** - Launch instructions

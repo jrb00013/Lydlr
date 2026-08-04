@@ -838,12 +838,13 @@ class EnhancedMultimodalCompressor(nn.Module):
         continuous = self.transmit_fuse(torch.cat([mu, temporal_latent], dim=-1))
         continuous = continuous * adjusted_compression
 
-        # STE quantization + entropy rate estimate
+        # STE quantization + entropy rate estimate (proxy) + countable indices
         rate_bits = continuous.new_zeros(batch_size)
+        quant_indices = None
         if self.quantizer is not None and self.entropy_coder is not None:
-            quantized, _idx, soft = self.quantizer(torch.tanh(continuous))
+            quantized, quant_indices, soft = self.quantizer(torch.tanh(continuous))
             entropy, _probs = self.entropy_coder(quantized, soft_assignments=soft)
-            rate_bits = entropy  # bits per sample (batch,)
+            rate_bits = entropy  # differentiable proxy bits per sample (batch,)
             compressed = quantized
         else:
             compressed = continuous
@@ -864,6 +865,7 @@ class EnhancedMultimodalCompressor(nn.Module):
             rate_bits,
             continuous,
             is_keyframe,
+            quant_indices,
         )
 
 
@@ -889,8 +891,12 @@ def compute_rd_loss(
     logvar_max=8.0,
     kl_max=20.0,
     codebook_levels=256,
+    quant_indices=None,
 ):
     """Rate–distortion loss: D_rec + β·KL_clipped + λ R (+ light auxiliaries).
+
+    Train uses differentiable proxy `rate_bits`. Metrics also report countable
+    packed-index bits when `quant_indices` is provided (see true_rate.py).
 
     See docs/architecture/RD_STABILITY_APPLIED_MATH.md — unbounded log-variance
     made 'distortion' spike to ~10^3 while MSE stayed small; we temper KL.
@@ -940,20 +946,33 @@ def compute_rd_loss(
     if not torch.isfinite(total):
         total = recon_loss.detach() * 0.0  # zero contrib; caller should skip step
 
-    return total, {
+    metrics = {
         "distortion": float(distortion.detach()),
         "recon_loss": float(recon_loss.detach()),
         "kl_loss": float(kl_loss.detach()),
         "kl_raw": float(kl_raw.detach()),
         "kl_capped": 1.0 if float(kl_raw.detach()) > kl_max else 0.0,
-        "rate_bits": float(rate.detach()),
+        "rate_bits": float(rate.detach()),  # proxy (differentiable)
         "rate_norm": float(rate_norm.detach()),
         "r_max": float(r_max),
         "lambda_rd": float(lambda_rd),
         "latent_consistency": float(latent_consistency.detach()),
         "quality_loss": float(quality_loss.detach()),
         "total": float(total.detach()) if torch.isfinite(total) else float("nan"),
+        "true_rate_bits": 0.0,
+        "proxy_vs_true_ratio": float("nan"),
     }
+    if quant_indices is not None:
+        try:
+            from lydlr_ai.model.true_rate import rate_report
+
+            tr, _ = rate_report(rate_bits, quant_indices, num_levels=codebook_levels)
+            metrics["true_rate_bits"] = tr["true_rate_bits"]
+            metrics["proxy_vs_true_ratio"] = tr["proxy_vs_true_ratio"]
+            metrics["fixed_length_bits"] = tr["fixed_length_bits"]
+        except Exception:
+            pass
+    return total, metrics
 
 
 def compute_enhanced_loss(
@@ -1016,6 +1035,35 @@ def unpack_compressor_output(out):
             "rate_bits": compressed.new_zeros(compressed.size(0)),
             "continuous": compressed,
             "is_keyframe": True,
+            "quant_indices": None,
+        }
+    if len(out) == 11:
+        (
+            compressed,
+            temporal_out,
+            predicted,
+            recon_img,
+            mu,
+            logvar,
+            adj,
+            pq,
+            rate_bits,
+            continuous,
+            is_keyframe,
+        ) = out
+        return {
+            "compressed": compressed,
+            "temporal_out": temporal_out,
+            "predicted": predicted,
+            "recon_img": recon_img,
+            "mu": mu,
+            "logvar": logvar,
+            "adjusted_compression": adj,
+            "predicted_quality": pq,
+            "rate_bits": rate_bits,
+            "continuous": continuous,
+            "is_keyframe": is_keyframe,
+            "quant_indices": None,
         }
     (
         compressed,
@@ -1029,6 +1077,7 @@ def unpack_compressor_output(out):
         rate_bits,
         continuous,
         is_keyframe,
+        quant_indices,
     ) = out
     return {
         "compressed": compressed,
@@ -1042,4 +1091,5 @@ def unpack_compressor_output(out):
         "rate_bits": rate_bits,
         "continuous": continuous,
         "is_keyframe": is_keyframe,
+        "quant_indices": quant_indices,
     }

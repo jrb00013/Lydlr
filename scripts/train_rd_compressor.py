@@ -221,6 +221,7 @@ def train(args: argparse.Namespace) -> Path:
                     beta=args.beta,
                     lambda_rd=lambda_rd,
                     temporal_to_latent=model.temporal_to_latent,
+                    quant_indices=packed.get("quant_indices"),
                 )
                 if not torch.isfinite(loss):
                     optimizer.zero_grad(set_to_none=True)
@@ -256,7 +257,9 @@ def train(args: argparse.Namespace) -> Path:
         eta = remaining_epochs * avg["epoch_sec"]
         print(
             f"epoch {epoch+1}/{epochs}  "
-            f"D={avg['distortion']:.4f}  R={avg['rate_bits']:.3f}  "
+            f"D={avg['distortion']:.4f}  "
+            f"Rproxy={avg['rate_bits']:.3f}  "
+            f"Rtrue={avg.get('true_rate_bits', 0):.1f}  "
             f"L={avg['total']:.4f}  λ={lambda_rd:.4f}  "
             f"φ={avg.get('phi_residual', 0):.3f}  "
             f"Drec={avg.get('recon_loss', 0):.4f}  "

@@ -14,9 +14,12 @@ Evaluate neural compression on synthetic multimodal batches.
 Reports dimensionless RD operating points from
 docs/architecture/NEURAL_COMPRESSION_RD_PLAN.md:
   - distortion D (MSE / PSNR / SSIM)
-  - rate R (entropy bits proxy)
-  - ratio ρ (raw float bytes / latent payload bytes)
+  - rate R_proxy (entropy bits, differentiable)
+  - rate R_true (packed quantizer index bits — claim this for link budget)
+  - ratio ρ (raw float bytes / latent float payload bytes)
   - latency L (ms)
+
+See docs/architecture/TRUE_RATE_APPLIED_MATH.md.
 
 Usage:
   PYTHONPATH=ros2/src/lydlr_ai python3 scripts/eval_compression_rd.py --frames 16
@@ -40,6 +43,7 @@ from lydlr_ai.model.compressor import (  # noqa: E402
     EnhancedMultimodalCompressor,
     unpack_compressor_output,
 )
+from lydlr_ai.model.true_rate import rate_report  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "scripts"))
 from structured_synthetic_data import init_scene, step_scene, relative_residual  # noqa: E402
@@ -128,7 +132,12 @@ def eval_model(args: argparse.Namespace) -> dict:
                 + audio.numel() * 4
             )
             coded_bytes = compressed.nbytes
-            rate_bits = float(packed["rate_bits"].mean().cpu())
+            tr_stats, packed_idx = rate_report(
+                packed["rate_bits"],
+                packed.get("quant_indices"),
+                num_levels=256,
+            )
+            true_payload = len(packed_idx) if packed_idx else coded_bytes
 
             row = {
                 "frame": t,
@@ -136,8 +145,14 @@ def eval_model(args: argparse.Namespace) -> dict:
                 "mse": float(np.mean((img_np - rec_np) ** 2)),
                 "psnr": _psnr(img_np, rec_np),
                 "ssim": _ssim_simple(img_np, rec_np),
-                "rate_bits": rate_bits,
+                "rate_bits": tr_stats["proxy_rate_bits"],  # legacy alias = proxy
+                "proxy_rate_bits": tr_stats["proxy_rate_bits"],
+                "true_rate_bits": tr_stats["true_rate_bits"],
+                "fixed_length_bits": tr_stats["fixed_length_bits"],
+                "proxy_vs_true_ratio": tr_stats["proxy_vs_true_ratio"],
+                "packed_index_bytes": float(true_payload),
                 "ratio": raw_bytes / max(coded_bytes, 1),
+                "ratio_true": raw_bytes / max(true_payload, 1),
                 "latency_ms": latency_ms,
                 "edge_fast": bool(args.edge_fast),
             }
@@ -149,7 +164,14 @@ def eval_model(args: argparse.Namespace) -> dict:
         "mean_ssim": float(np.mean([r["ssim"] for r in rows])),
         "mean_mse": float(np.mean([r["mse"] for r in rows])),
         "mean_rate_bits": float(np.mean([r["rate_bits"] for r in rows])),
+        "mean_proxy_rate_bits": float(np.mean([r["proxy_rate_bits"] for r in rows])),
+        "mean_true_rate_bits": float(np.mean([r["true_rate_bits"] for r in rows])),
+        "mean_fixed_length_bits": float(np.mean([r["fixed_length_bits"] for r in rows])),
+        "mean_proxy_vs_true_ratio": float(
+            np.nanmean([r["proxy_vs_true_ratio"] for r in rows])
+        ),
         "mean_ratio": float(np.mean([r["ratio"] for r in rows])),
+        "mean_ratio_true": float(np.mean([r["ratio_true"] for r in rows])),
         "p50_latency_ms": float(np.median([r["latency_ms"] for r in rows])),
         "keyframe_fraction": float(np.mean([r["is_keyframe"] for r in rows])),
         "edge_fast": bool(args.edge_fast),
@@ -157,6 +179,7 @@ def eval_model(args: argparse.Namespace) -> dict:
         "data": "structured_synthetic",
         "lambda_note": "Train with scripts/train_rd_compressor.py --lambda-rd to sweep RD curve",
         "plan": "docs/architecture/NEURAL_COMPRESSION_RD_PLAN.md",
+        "true_rate_note": "docs/architecture/TRUE_RATE_APPLIED_MATH.md — claim mean_true_rate_bits for wire",
         "frames_detail": rows,
     }
     return summary

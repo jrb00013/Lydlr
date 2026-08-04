@@ -11,7 +11,7 @@ Lydlr is a revolutionary real-time multimodal compression system that deploys AI
 - **Synthetic data training** pipeline
 - **Adaptive bandwidth management**
 
-**Rate–distortion design:** see [NEURAL_COMPRESSION_RD_PLAN.md](NEURAL_COMPRESSION_RD_PLAN.md) for the applied-math framing, surgical implementation map, and eval/training entrypoints (`scripts/train_rd_compressor.py`, `scripts/eval_compression_rd.py`).
+**Rate–distortion design:** see [NEURAL_COMPRESSION_RD_PLAN.md](NEURAL_COMPRESSION_RD_PLAN.md) for the applied-math framing, surgical implementation map, and eval/training entrypoints (`scripts/train_rd_compressor.py`, `scripts/eval_compression_rd.py`). Countable wire rate vs entropy proxy: [TRUE_RATE_APPLIED_MATH.md](TRUE_RATE_APPLIED_MATH.md). Jetson Orin path: [JETSON_ORIN_DEMO.md](../guides/JETSON_ORIN_DEMO.md).
 
 ---
 

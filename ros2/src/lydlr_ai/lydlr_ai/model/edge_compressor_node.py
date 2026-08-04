@@ -64,6 +64,7 @@ except ImportError:
     psutil = None
 
 from lydlr_ai.model.compressor import EnhancedMultimodalCompressor, unpack_compressor_output
+from lydlr_ai.model.true_rate import rate_report
 from lydlr_ai.utils.metrics_reporter import report_metrics
 from lydlr_ai.utils.preview_reporter import report_preview
 from lydlr_ai.communication.edge_transport import EdgeTransportLayer, sensor_qos
@@ -771,6 +772,8 @@ class EdgeCompressorNode(Node):
                     recon_img = packed["recon_img"]
                     predicted_quality = packed["predicted_quality"]
                     rate_bits = packed["rate_bits"]
+                    quant_indices = packed.get("quant_indices")
+                    tr_stats, packed_idx = rate_report(rate_bits, quant_indices, num_levels=256)
                     self.hidden_state = temporal_out
 
                     quality_val = float(predicted_quality.item())
@@ -812,6 +815,8 @@ class EdgeCompressorNode(Node):
                             image.cpu().numpy().astype(np.float32).tobytes(), level=6
                         )
                     framed_chunks["compressed"] = raw_blob
+                    if packed_idx:
+                        framed_chunks["quant_indices"] = packed_idx
                     raw_blob = frame_multimodal_payload(framed_chunks)
 
                 input_size = sum(modality_bytes_in.values())
@@ -894,7 +899,9 @@ class EdgeCompressorNode(Node):
                 self.get_logger().info(
                     f"📊 Compression: {compression_ratio:.2f}x | "
                     f"Latency: {latency_ms:.2f}ms | "
-                    f"Quality: {predicted_quality.item():.3f}"
+                    f"Quality: {predicted_quality.item():.3f} | "
+                    f"Rproxy={tr_stats['proxy_rate_bits']:.2f} "
+                    f"Rtrue={tr_stats['true_rate_bits']:.1f} bits"
                 )
         
         except Exception as e:

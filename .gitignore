@@ -25,6 +25,9 @@ models/
 **/checkpoint_*.pth
 **/final_*.pth
 
+# Jetson / ONNX deploy outputs (regenerate via scripts/export_onnx_bundle.py)
+deploy_bundles/
+
 # Training artifacts
 training_history.json
 training_logs/
