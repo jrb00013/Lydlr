@@ -75,6 +75,7 @@ class LiveState:
             "camera": "",
             "mode": "hybrid_cuda_encode_cpu_recon",
         }
+        self.last_recon: Optional[torch.Tensor] = None
 
     def update(self, sides: Dict[str, bytes], metrics: Dict) -> None:
         with self.lock:
@@ -146,10 +147,15 @@ def open_camera(camera: str, width: int, height: int) -> cv2.VideoCapture:
                 if isinstance(pipe, int) or (
                     isinstance(pipe, str) and pipe.startswith("/dev/")
                 ):
+                    # IMX477 defaults to 12MP — force preview geometry before first grab
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 ok, frame = cap.read()
                 if ok and frame is not None:
+                    # Immediately downscale and drop native buffer (12MP kills Orin)
+                    if frame.shape[0] != height or frame.shape[1] != width:
+                        frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
                     print(f"camera_ok pipe={pipe!r} shape={frame.shape}", flush=True)
                     return cap
                 print(f"camera_opened_but_no_frame pipe={pipe!r}", flush=True)
@@ -158,6 +164,24 @@ def open_camera(camera: str, width: int, height: int) -> cv2.VideoCapture:
             last_err = exc
             print(f"camera_fail pipe={pipe!r} err={exc}", flush=True)
     raise SystemExit(f"Could not open camera={camera!r} (last_err={last_err})")
+
+
+def warmup_cuda(model, device: torch.device, h: int, w: int) -> None:
+    """First CUDA touch on synthetic tensors BEFORE opening the camera ISP."""
+    if device.type != "cuda":
+        return
+    print("cuda_warmup_start", flush=True)
+    img = torch.zeros(1, 3, h, w, device=device)
+    lidar = torch.zeros(1, 3072, device=device)
+    imu = torch.zeros(1, 6, device=device)
+    audio = torch.zeros(1, 16384, device=device)
+    with torch.no_grad():
+        _ = unpack_compressor_output(
+            model(img, lidar, imu, audio, edge_fast=True, skip_recon=True)
+        )
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    print("cuda_warmup_ok", flush=True)
 
 
 def bgr_to_tensor(frame_bgr: np.ndarray, h: int, w: int, device: torch.device) -> torch.Tensor:
@@ -357,17 +381,24 @@ def inference_loop(args, stop: threading.Event):
     print(f"device={device}", flush=True)
     print("loading_models…", flush=True)
     model, vae_cpu = load_models(Path(args.checkpoint), device)
-    print("models_ready — opening camera", flush=True)
+    print("models_ready", flush=True)
+    warmup_cuda(model, device, args.height, args.width)
+    print("opening_camera", flush=True)
     cap = open_camera(args.camera, args.width, args.height)
     h, w = args.height, args.width
     frame_i = 0
+    recon_every = max(1, int(args.recon_every))
 
     while not stop.is_set():
         ok, frame = cap.read()
         if not ok or frame is None:
             time.sleep(0.02)
             continue
+        # Drop native IMX resolution immediately (4056×3040 has hard-hung Orin)
+        if frame.shape[0] != h or frame.shape[1] != w:
+            frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
         image = bgr_to_tensor(frame, h, w, device)
+        del frame
         lidar = torch.zeros(1, 3072, device=device)
         imu = torch.zeros(1, 6, device=device)
         audio = torch.zeros(1, 16384, device=device)
@@ -387,11 +418,15 @@ def inference_loop(args, stop: threading.Event):
                     target_quality=0.8,
                 )
             )
-            # Full VAE recon on CPU (Orin-safe)
-            mu = packed["mu"].detach().float().cpu()
-            logvar = packed["logvar"].detach().float().cpu()
-            z = vae_cpu.reparameterize(mu, logvar)
-            recon = vae_cpu.decode_progressive(z, target_scale=2).clamp(0, 1)
+            do_recon = (frame_i % recon_every) == 0
+            if do_recon:
+                mu = packed["mu"].detach().float().cpu()
+                logvar = packed["logvar"].detach().float().cpu()
+                z = vae_cpu.reparameterize(mu, logvar)
+                recon = vae_cpu.decode_progressive(z, target_scale=2).clamp(0, 1)
+                STATE.last_recon = recon.detach()
+            else:
+                recon = STATE.last_recon if STATE.last_recon is not None else image.detach().float().cpu()
         if device.type == "cuda":
             torch.cuda.synchronize()
         latency_ms = (time.perf_counter() - t0) * 1000.0
@@ -399,7 +434,7 @@ def inference_loop(args, stop: threading.Event):
         tr, _ = rate_report(packed["rate_bits"], packed.get("quant_indices"), num_levels=256)
         q = float(packed["predicted_quality"].float().mean().cpu())
         image_cpu = image.detach().float().cpu()
-        psnr_v = psnr(image_cpu, recon)
+        psnr_v = psnr(image_cpu, recon) if do_recon else float(STATE.get_metrics().get("psnr", 0.0))
 
         sides = {
             "raw": tensor_to_jpeg(image_cpu),
@@ -416,6 +451,7 @@ def inference_loop(args, stop: threading.Event):
             "camera": args.camera,
             "mode": "hybrid_cuda_encode_cpu_recon",
             "device": str(device),
+            "recon_this_frame": do_recon,
         }
         STATE.update(sides, metrics)
 
@@ -436,10 +472,11 @@ def inference_loop(args, stop: threading.Event):
             )
 
         frame_i += 1
-        if frame_i % 30 == 0:
+        if frame_i <= 5 or frame_i % 30 == 0:
             print(
                 f"frame={frame_i} {latency_ms:.1f}ms PSNR={psnr_v:.2f} "
-                f"Rtrue={tr['true_rate_bits']:.0f} Rproxy={tr['proxy_rate_bits']:.2f}",
+                f"Rtrue={tr['true_rate_bits']:.0f} Rproxy={tr['proxy_rate_bits']:.2f} "
+                f"recon={do_recon}",
                 flush=True,
             )
         if args.max_frames and frame_i >= args.max_frames:
@@ -459,12 +496,25 @@ def main():
     p.add_argument("--node-id", default="node_0")
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--max-frames", type=int, default=0)
+    p.add_argument(
+        "--recon-every",
+        type=int,
+        default=1,
+        help="Run CPU VAE recon every N frames (1=every frame)",
+    )
     p.add_argument("--bind", default="0.0.0.0")
     args = p.parse_args()
 
     stop = threading.Event()
     worker = threading.Thread(target=inference_loop, args=(args, stop), daemon=True)
     worker.start()
+
+    if args.max_frames:
+        # Smoke mode: no HTTP server (avoids extra threads during fragile bring-up)
+        worker.join(timeout=max(120, args.max_frames * 60))
+        stop.set()
+        print("demo_done", flush=True)
+        return
 
     server = ThreadingHTTPServer((args.bind, args.port), make_handler())
     print(f"viz http://{args.bind}:{args.port}/  (open from your laptop)", flush=True)
@@ -474,7 +524,11 @@ def main():
         stop.set()
     finally:
         stop.set()
-        server.shutdown()
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        print("demo_done", flush=True)
 
 
 if __name__ == "__main__":
