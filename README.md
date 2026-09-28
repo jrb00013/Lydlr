@@ -21,14 +21,15 @@
 
 JPEG treats each frame independently and has no temporal memory. Correlated sensor video carries redundancy across time that intra JPEG cannot exploit. Lydlr’s falsifiable claim is **temporal residual coding at matched clip bpp**.
 
-**Measured (CI / local smoke):** on a synthetic correlated clip (`scripts/prove_beat_jpeg.py --synthetic`), residual JPEG beats intra JPEG by **~+12 dB PSNR** at matched bpp. That is the locksmith axis — not still-image RD.
+**Measured (CI / local smoke):** on `scripts/fixture_correlated_clip.npz` (consecutive frames), residual JPEG beats intra JPEG by **~+12 dB PSNR** at matched bpp. That is the locksmith axis — not still-image RD.
 
 ```bash
-PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py --synthetic
-PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py --clip path/to/clip.npz --codecs jpeg,webp,h264,lydlr
+PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py
+PYTHONPATH=ros2/src/lydlr_ai python scripts/generate_correlated_clip.py   # regenerate fixture
+PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py --clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp
 ```
 
-See [BENCHMARK_PROTOCOL.md](/docs/architecture/BENCHMARK_PROTOCOL.md): countable payload only; entropy proxy is never wire bits. Bundled `fixture_*_clip.npz` files are independent multimodal samples (not consecutive video) — use `--synthetic` or a real consecutive-frame recording for the beat-JPEG claim.
+See [BENCHMARK_PROTOCOL.md](/docs/architecture/BENCHMARK_PROTOCOL.md): countable payload only; entropy proxy is never wire bits. Bundled `fixture_drone|iot|warehouse_clip.npz` files are independent multimodal samples (not consecutive video) — use `fixture_correlated_clip.npz` for the beat-JPEG claim.
 
 ## Overview
 

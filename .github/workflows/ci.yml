@@ -35,12 +35,13 @@ jobs:
             fi
           done
 
-      - name: prove_beat_jpeg (synthetic correlated clip)
+      - name: prove_beat_jpeg (checked-in correlated clip)
         run: |
-          PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py --synthetic --frames 12 --max-width 160
+          PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py \
+            --fixture scripts/fixture_correlated_clip.npz --frames 12 --max-width 160
 
       - name: bench_codecs smoke
         run: |
           PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py \
-            --synthetic 4 --codecs jpeg,webp --target-bpps 0.2 \
+            --clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp --target-bpps 0.2 \
             --out scripts/results/ci_rd_smoke.json
