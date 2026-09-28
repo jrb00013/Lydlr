@@ -1,4 +1,5 @@
 # Lydlr AI — Multimodal Sensor Data Compression with Adaptive Real-Time Optimization
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/2d12a7d3-4288-4455-b154-ac64940f55ae" />
 
 ## Installation and Setup
 
