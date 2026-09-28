@@ -1,66 +1,125 @@
 :root {
-  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  /* Expressive stack — Syne display, IBM Plex body/mono (not Inter/system) */
+  --font-display: 'Syne', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
 
-  --bg-deep: #070b14;
-  --bg-base: #0c1222;
-  --bg-elevated: #111827;
-  --bg-surface: rgba(17, 24, 39, 0.72);
-  --bg-card: rgba(255, 255, 255, 0.97);
-  --bg-card-hover: #ffffff;
+  /* Ink field — industrial edge console, not purple-glow SaaS */
+  --bg-deep: #05070c;
+  --bg-base: #0a0e16;
+  --bg-elevated: #10161f;
+  --bg-surface: rgba(16, 22, 31, 0.82);
+  --bg-card: #f4f1eb;
+  --bg-card-hover: #faf8f4;
+  --bg-glass: rgba(14, 20, 28, 0.72);
 
-  --accent: #3b82f6;
-  --accent-bright: #60a5fa;
-  --accent-glow: rgba(59, 130, 246, 0.35);
-  --accent-secondary: #8b5cf6;
-  --cyan: #22d3ee;
-  --emerald: #10b981;
-  --amber: #f59e0b;
-  --rose: #f43f5e;
+  /* Signal accents */
+  --accent: #1ab8a0;
+  --accent-bright: #3ee0c4;
+  --accent-glow: rgba(26, 184, 160, 0.28);
+  --accent-secondary: #e8a838;
+  --cyan: #3ee0c4;
+  --emerald: #34d399;
+  --amber: #e8a838;
+  --rose: #f07178;
+  --drone: #5b9fd4;
+  --iot: #e8a838;
 
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-on-card: #1e293b;
-  --text-on-card-muted: #64748b;
+  --text-primary: #eef2f6;
+  --text-secondary: #9aa8b8;
+  --text-muted: #6b7a8d;
+  --text-on-card: #1a2330;
+  --text-on-card-muted: #5c6b7d;
 
-  --border-subtle: rgba(148, 163, 184, 0.12);
-  --border-card: rgba(226, 232, 240, 0.9);
+  --border-subtle: rgba(154, 168, 184, 0.14);
+  --border-strong: rgba(62, 224, 196, 0.35);
+  --border-card: rgba(26, 35, 48, 0.08);
 
-  --sidebar-width: 260px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --sidebar-width: 248px;
+  --topbar-height: 56px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.35);
-  --shadow-glow: 0 0 40px var(--accent-glow);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 36px var(--accent-glow);
 
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-base: 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
-  50% { box-shadow: 0 0 20px 4px var(--accent-glow); }
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .page-enter {
-  animation: fadeIn 0.45s ease-out;
+  animation: fadeIn 0.4s var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .sidebar,
+  .sidebar__link,
+  .connection-pill__dot {
+    animation: none !important;
+    transition: none !important;
+  }
 }

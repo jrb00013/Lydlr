@@ -83,3 +83,4 @@ Thumbs.db
 # Local bench / proof outputs (regenerate via scripts/)
 scripts/results/
 
+node_modules/

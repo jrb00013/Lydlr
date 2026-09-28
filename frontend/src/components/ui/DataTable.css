@@ -4,8 +4,9 @@
 
 .data-table__scroll {
   overflow-x: auto;
-  border-radius: var(--radius-md, 12px);
-  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  -webkit-overflow-scrolling: touch;
 }
 
 .data-table__table {
@@ -15,16 +16,20 @@
 }
 
 .data-table__table thead {
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
 }
 
 .data-table__table th {
   text-align: left;
   padding: 0.75rem 1rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-on-card-muted);
   white-space: nowrap;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-card);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .data-table__th-btn {
@@ -51,28 +56,30 @@
 
 .data-table__table td {
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
-  color: #1e293b;
+  border-bottom: 1px solid var(--border-card);
+  color: var(--text-on-card);
   vertical-align: middle;
 }
 
 .data-table__table tbody tr:hover {
-  background: #f8fafc;
+  background: var(--bg-card-hover);
 }
 
 .data-table__empty {
   text-align: center;
   padding: 2.5rem !important;
-  color: #64748b;
+  color: var(--text-on-card-muted);
 }
 
 .data-table__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   padding: 0.75rem 0;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-on-card-muted);
 }
 
 .data-table__pager {
@@ -83,11 +90,18 @@
 
 .data-table__pager button {
   padding: 0.35rem 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: white;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-on-card);
   cursor: pointer;
   font-size: 0.85rem;
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.data-table__pager button:hover:not(:disabled) {
+  border-color: var(--accent);
 }
 
 .data-table__pager button:disabled {
@@ -98,40 +112,41 @@
 .data-table--loading {
   padding: 3rem;
   text-align: center;
-  color: #64748b;
+  color: var(--text-on-card-muted);
 }
 
 .badge {
   display: inline-block;
   padding: 0.15rem 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-family: var(--font-mono);
 }
 
 .badge--production {
-  background: #d1fae5;
+  background: rgba(52, 211, 153, 0.2);
   color: #047857;
 }
 
 .badge--registered {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: rgba(26, 184, 160, 0.18);
+  color: #0f6b5c;
 }
 
 .badge--drone {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(91, 159, 212, 0.2);
+  color: #2563a8;
 }
 
 .badge--iot {
-  background: #d1fae5;
-  color: #065f46;
+  background: rgba(232, 168, 56, 0.22);
+  color: #92400e;
 }
 
 .badge--multimodal {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: rgba(26, 184, 160, 0.15);
+  color: #0f7a6c;
 }

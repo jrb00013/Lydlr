@@ -953,7 +953,7 @@ function SignalOcean({
 
       /* ---- HUD readout ------------------------------------------------------ */
       ctx.fillStyle = 'rgba(248,250,252,0.82)';
-      ctx.font = compact ? '600 11px DM Sans, sans-serif' : '600 13px DM Sans, sans-serif';
+      ctx.font = compact ? '600 11px IBM Plex Sans, sans-serif' : '600 13px IBM Plex Sans, sans-serif';
       const label = selectedNode || tg.nodeId || 'fleet';
       ctx.fillText(
         `${label}  ·  ${sm.compression.toFixed(1)}×  ·  q ${(q * 100).toFixed(0)}%  ·  ${sm.latency.toFixed(0)} ms`,
@@ -961,7 +961,7 @@ function SignalOcean({
         h - 14
       );
       ctx.fillStyle = 'rgba(148,163,184,0.5)';
-      ctx.font = compact ? '600 9px DM Sans, sans-serif' : '600 10px DM Sans, sans-serif';
+      ctx.font = compact ? '600 9px IBM Plex Sans, sans-serif' : '600 10px IBM Plex Sans, sans-serif';
       ctx.fillText(
         `maelstrom ${Math.round(compressionNorm * 100)}% · weather ${storm > 0.5 ? 'storm' : 'clear'}`,
         16,

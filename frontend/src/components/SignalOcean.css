@@ -4,7 +4,7 @@
   height: min(82vh, 680px);
   min-height: 420px;
   overflow: hidden;
-  background: var(--bg-deep, #070b14);
+  background: var(--bg-deep);
   cursor: crosshair;
   user-select: none;
   -webkit-user-select: none;
@@ -15,7 +15,13 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(3, 5, 12, 0.35) 0%, transparent 14%, transparent 82%, rgba(3, 5, 12, 0.55) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(5, 7, 12, 0.35) 0%,
+    transparent 14%,
+    transparent 82%,
+    rgba(5, 7, 12, 0.55) 100%
+  );
   z-index: 1;
 }
 
@@ -42,11 +48,11 @@
 }
 
 .signal-ocean__brand {
-  font-family: var(--font-sans, 'DM Sans', sans-serif);
+  font-family: var(--font-display);
   font-size: clamp(1.75rem, 4vw, 2.85rem);
   font-weight: 700;
   letter-spacing: -0.03em;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   text-shadow: 0 2px 28px rgba(0, 0, 0, 0.5);
 }
 
@@ -55,11 +61,11 @@
 }
 
 .signal-ocean__tag {
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
 }
 
 .signal-ocean__legend {
@@ -74,18 +80,18 @@
 }
 
 .signal-ocean__chip {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 0.65rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 0.15rem 0;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
   cursor: pointer;
   opacity: 0.75;
-  transition: opacity 160ms ease, color 160ms ease;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
 .signal-ocean__chip:hover,
@@ -93,15 +99,35 @@
   opacity: 1;
 }
 
-.signal-ocean__chip--camera { border-bottom-color: var(--cyan, #22d3ee); color: var(--cyan, #22d3ee); }
-.signal-ocean__chip--lidar { border-bottom-color: var(--emerald, #10b981); color: var(--emerald, #10b981); }
-.signal-ocean__chip--imu { border-bottom-color: var(--amber, #f59e0b); color: var(--amber, #f59e0b); }
-.signal-ocean__chip--audio { border-bottom-color: #38bdf8; color: #38bdf8; }
+.signal-ocean__chip--camera {
+  border-bottom-color: var(--accent-bright);
+  color: var(--accent-bright);
+}
+
+.signal-ocean__chip--lidar {
+  border-bottom-color: var(--emerald);
+  color: var(--emerald);
+}
+
+.signal-ocean__chip--imu {
+  border-bottom-color: var(--amber);
+  color: var(--amber);
+}
+
+.signal-ocean__chip--audio {
+  border-bottom-color: var(--drone);
+  color: var(--drone);
+}
 
 @media (max-width: 720px) {
   .signal-ocean {
     height: 56vh;
     min-height: 300px;
+  }
+
+  .signal-ocean__chrome {
+    left: 1rem;
+    top: 1rem;
   }
 
   .signal-ocean__legend {

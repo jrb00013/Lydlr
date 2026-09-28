@@ -4,7 +4,8 @@
   gap: 8px;
   font-size: 1rem;
   margin: 0 0 12px 0;
-  color: var(--text-secondary, #94a3b8);
+  font-family: var(--font-display);
+  color: var(--text-on-card);
 }
 
 .budget-summary-row {
@@ -18,14 +19,26 @@
   font-size: 0.8rem;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
-  background: rgba(148, 163, 184, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(26, 35, 48, 0.06);
+  font-family: var(--font-mono);
 }
 
-.budget-count--over { color: #ef4444; }
-.budget-count--at { color: #f59e0b; }
-.budget-count--under { color: #22c55e; }
-.budget-count--quality { color: #f97316; }
+.budget-count--over {
+  color: var(--rose);
+}
+
+.budget-count--at {
+  color: var(--amber);
+}
+
+.budget-count--under {
+  color: var(--emerald);
+}
+
+.budget-count--quality {
+  color: var(--amber);
+}
 
 .budget-node-table {
   margin-top: 16px;
@@ -39,36 +52,49 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(148, 163, 184, 0.05);
+  border-radius: var(--radius-md);
+  background: rgba(26, 35, 48, 0.04);
+  border: 1px solid var(--border-card);
 }
 
 .budget-node-info {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .budget-node-name {
   font-weight: 600;
   font-size: 0.85rem;
+  color: var(--text-on-card);
 }
 
 .budget-node-vertical {
   font-size: 0.7rem;
   text-transform: uppercase;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
 }
 
-.badge--drone { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-.badge--iot { background: rgba(34, 197, 94, 0.15); color: #34d399; }
+.badge--drone {
+  background: rgba(91, 159, 212, 0.18);
+  color: var(--drone);
+}
+
+.badge--iot {
+  background: rgba(232, 168, 56, 0.2);
+  color: #b45309;
+}
 
 .budget-node-metrics {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   font-size: 0.8rem;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-on-card-muted);
 }
 
 .budget-quality-dot {
@@ -78,14 +104,14 @@
 .budget-bar-track {
   position: relative;
   height: 6px;
-  background: rgba(148, 163, 184, 0.15);
-  border-radius: 3px;
+  background: rgba(26, 35, 48, 0.1);
+  border-radius: var(--radius-sm);
   overflow: visible;
 }
 
 .budget-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   transition: width 0.5s ease;
 }
 
@@ -94,5 +120,6 @@
   right: -32px;
   top: -5px;
   font-size: 0.7rem;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-on-card-muted);
+  font-family: var(--font-mono);
 }

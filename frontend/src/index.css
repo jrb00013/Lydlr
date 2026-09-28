@@ -1,6 +1,8 @@
 @import './styles/theme.css';
 
-* {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -13,6 +15,8 @@ html {
 body {
   margin: 0;
   font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-deep);
@@ -20,25 +24,59 @@ body {
   min-height: 100vh;
 }
 
+/* Atmosphere: ink field + faint grid + signal wash (no purple) */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(59, 130, 246, 0.18), transparent),
-    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(139, 92, 246, 0.12), transparent),
-    radial-gradient(ellipse 50% 30% at 50% 100%, rgba(34, 211, 238, 0.06), transparent),
-    linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-base) 50%, #0a0f1a 100%);
+    radial-gradient(ellipse 70% 45% at 12% -8%, rgba(26, 184, 160, 0.14), transparent 55%),
+    radial-gradient(ellipse 50% 35% at 92% 8%, rgba(232, 168, 56, 0.07), transparent 50%),
+    linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-base) 55%, #070b12 100%);
   pointer-events: none;
-  z-index: -1;
+  z-index: -2;
 }
 
-code, .monospace {
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(154, 168, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 168, 184, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 20%, transparent 75%);
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.7;
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+code,
+.monospace,
+.mono {
   font-family: var(--font-mono);
 }
 
+a {
+  color: var(--accent-bright);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+
 ::selection {
-  background: rgba(59, 130, 246, 0.35);
+  background: rgba(26, 184, 160, 0.4);
   color: #fff;
 }
 
@@ -48,14 +86,18 @@ code, .monospace {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.4);
+  background: rgba(107, 122, 141, 0.45);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.6);
+  background: rgba(107, 122, 141, 0.7);
+}
+
+button {
+  font-family: inherit;
 }
