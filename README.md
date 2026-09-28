@@ -1,5 +1,11 @@
 # Lydlr AI — Multimodal Sensor Data Compression with Adaptive Real-Time Optimization
 
+<p align="center">
+  <img src="docs/assets/lydlr-logo-banner.jpg" alt="Lydlr — AI | Compression | ROS2 | Edge" width="640" />
+</p>
+
+<p align="center"><strong>AI · Compression · ROS2 · Edge</strong></p>
+
 ## Installation and Setup
 
 ## Architecture (deep dive)
