@@ -62,9 +62,9 @@ function LinkBudgetPanel() {
   }));
 
   const statusColors = {
-    over_budget: '#ef4444',
-    at_budget: '#f59e0b',
-    under_budget: '#22c55e',
+    over_budget: '#f07178',
+    at_budget: '#e8a838',
+    under_budget: '#34d399',
   };
 
   return (
@@ -96,8 +96,8 @@ function LinkBudgetPanel() {
           <YAxis yAxisId="right" orientation="right" label={{ value: '×', angle: 0, position: 'insideRight' }} />
           <Tooltip />
           <Legend />
-          <Bar yAxisId="left" dataKey="budget" fill="#3b82f6" name="Budget (kbps)" opacity={0.6} />
-          <Bar yAxisId="left" dataKey="throughput" fill="#60a5fa" name="Throughput (kbps)" />
+          <Bar yAxisId="left" dataKey="budget" fill="#1ab8a0" name="Budget (kbps)" opacity={0.6} />
+          <Bar yAxisId="left" dataKey="throughput" fill="#3ee0c4" name="Throughput (kbps)" />
           <Line yAxisId="right" type="monotone" dataKey="compressionLevel" stroke="#34d399" name="Compression ratio" strokeWidth={2} dot={{ r: 4 }} />
           <ReferenceLine yAxisId="left" x={0} stroke="rgba(148,163,184,0.3)" />
         </ComposedChart>
@@ -106,7 +106,7 @@ function LinkBudgetPanel() {
       <div className="budget-node-table">
         {nodes.map((n) => {
           const pct = +(n.budget_utilization * 100).toFixed(0);
-          const barColor = pct > 95 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#22c55e';
+          const barColor = pct > 95 ? '#f07178' : pct > 50 ? '#e8a838' : '#34d399';
           return (
             <div key={n.node_id} className="budget-node-row">
               <div className="budget-node-info">
@@ -117,7 +117,7 @@ function LinkBudgetPanel() {
               </div>
               <div className="budget-node-metrics">
                 <span>{n.estimated_throughput_kbps} / {n.uplink_budget_kbps} kbps</span>
-                <span className="budget-quality-dot" style={{ color: n.quality_ok ? '#22c55e' : '#ef4444' }}>
+                <span className="budget-quality-dot" style={{ color: n.quality_ok ? '#34d399' : '#f07178' }}>
                   ● {n.quality_ok ? 'OK' : 'Low'}
                 </span>
               </div>

@@ -19,6 +19,7 @@ import HubIcon from '@mui/icons-material/Hub';
 import MemoryIcon from '@mui/icons-material/Memory';
 import PageHeader from './ui/PageHeader';
 import LoadingSpinner from './ui/LoadingSpinner';
+import EmptyState from './ui/EmptyState';
 import LinkBudgetPanel from './LinkBudgetPanel';
 import RLPolicyPanel from './RLPolicyPanel';
 import SignalOcean from './SignalOcean';
@@ -26,9 +27,14 @@ import './Dashboard.css';
 import { useSmartPolling } from '../hooks/useSmartPolling';
 import { useMetricsWebSocket } from '../hooks/useMetricsWebSocket';
 import { useDemoPulse } from '../hooks/useDemoPulse';
-import { previewJpegUrl } from '../api/lydlrApi';
+import { apiBaseUrl, previewJpegUrl } from '../api/lydlrApi';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const CHART = {
+  compression: '#1ab8a0',
+  latency: '#34d399',
+  quality: '#e8a838',
+  uplink: '#1ab8a0',
+};
 
 function Dashboard({ connected }) {
   const [stats, setStats] = useState({
@@ -77,18 +83,18 @@ function Dashboard({ connected }) {
   });
 
   const fetchStats = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/stats/`);
+    const res = await fetch(`${apiBaseUrl()}/api/stats/`);
     if (res.ok) setStats(await res.json());
   }, []);
 
   const fetchFleet = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/nodes/`);
+    const res = await fetch(`${apiBaseUrl()}/api/nodes/`);
     if (res.ok) setFleetNodes(await res.json());
   }, []);
 
   const fetchLinkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/fleet/link-policy/health/`);
+      const res = await fetch(`${apiBaseUrl()}/api/fleet/link-policy/health/`);
       if (res.ok) setLinkHealth(await res.json());
     } catch (_) {
       /* optional */
@@ -96,7 +102,7 @@ function Dashboard({ connected }) {
   }, []);
 
   const fetchRecentMetrics = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/metrics/?limit=30`);
+    const res = await fetch(`${apiBaseUrl()}/api/metrics/?limit=30`);
     if (!res.ok) return;
     const rows = await res.json();
     if (!rows.length) return;
@@ -178,10 +184,9 @@ function Dashboard({ connected }) {
         <div className="dashboard__ocean-overlay">
           <div className="dashboard__ocean-copy">
             <p className="dashboard__eyebrow">Lydlr</p>
-            <h1>Compression as weather</h1>
+            <h1>Edge compression beats raw bandwidth</h1>
             <p>
-              Multimodal signals flood in, squeeze through the live funnel, and only
-              the surviving uplink crosses the budget wall.
+              Multimodal streams shrink on-device so UAV and LPWAN uplinks stay inside budget.
             </p>
           </div>
           <div className="dashboard__ocean-stats">
@@ -291,11 +296,15 @@ function Dashboard({ connected }) {
               <HubIcon /> Live compression telemetry
             </h2>
             {metricsHistory.length === 0 ? (
-              <p className="chart-empty">
-                {connected
-                  ? 'Waiting for edge metrics — demo pulse will fill charts shortly'
-                  : 'API offline — start the backend to see live data'}
-              </p>
+              <EmptyState
+                icon={HubIcon}
+                title={connected ? 'Waiting for edge metrics' : 'API offline'}
+                description={
+                  connected
+                    ? 'Demo pulse will fill charts shortly.'
+                    : 'Start the backend to see live compression telemetry.'
+                }
+              />
             ) : (
               <ResponsiveContainer width="100%" height={320}>
                 <LineChart data={metricsHistory}>
@@ -309,7 +318,7 @@ function Dashboard({ connected }) {
                     yAxisId="left"
                     type="monotone"
                     dataKey="compression"
-                    stroke="#60a5fa"
+                    stroke={CHART.compression}
                     name="Compression ratio"
                     strokeWidth={2}
                     dot={false}
@@ -318,7 +327,7 @@ function Dashboard({ connected }) {
                     yAxisId="right"
                     type="monotone"
                     dataKey="latency"
-                    stroke="#34d399"
+                    stroke={CHART.latency}
                     name="Latency (ms)"
                     strokeWidth={2}
                     dot={false}
@@ -327,7 +336,7 @@ function Dashboard({ connected }) {
                     yAxisId="left"
                     type="monotone"
                     dataKey="quality"
-                    stroke="#fbbf24"
+                    stroke={CHART.quality}
                     name="Quality"
                     strokeWidth={2}
                     dot={false}
@@ -356,8 +365,8 @@ function Dashboard({ connected }) {
               >
                 <defs>
                   <linearGradient id="uplinkGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                    <stop offset="0%" stopColor={CHART.uplink} stopOpacity={0.45} />
+                    <stop offset="100%" stopColor={CHART.uplink} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
@@ -367,7 +376,7 @@ function Dashboard({ connected }) {
                 <Area
                   type="monotone"
                   dataKey="kbps"
-                  stroke="#60a5fa"
+                  stroke={CHART.uplink}
                   fill="url(#uplinkGrad)"
                   name="Uplink"
                 />

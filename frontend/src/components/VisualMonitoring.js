@@ -174,9 +174,9 @@ function VisualMonitoring() {
   }, [linkHealth, selectedNode]);
 
   const getQualityColor = (quality) => {
-    if (quality >= 80) return 'var(--emerald, #10b981)';
-    if (quality >= 60) return 'var(--amber, #f59e0b)';
-    return 'var(--rose, #f43f5e)';
+    if (quality >= 80) return 'var(--emerald, #34d399)';
+    if (quality >= 60) return 'var(--amber, #e8a838)';
+    return 'var(--rose, #f07178)';
   };
 
   const sides = [
@@ -308,8 +308,8 @@ function VisualMonitoring() {
               <AreaChart data={nodeHistory}>
                 <defs>
                   <linearGradient id="compFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#3ee0c4" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#3ee0c4" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
@@ -321,13 +321,13 @@ function VisualMonitoring() {
                 />
                 <YAxis stroke="#64748b" fontSize={11} />
                 <Tooltip
-                  contentStyle={{ background: '#111827', border: '1px solid #334155' }}
+                  contentStyle={{ background: '#10161f', border: '1px solid rgba(62, 224, 196, 0.25)' }}
                   labelFormatter={(v) => new Date(v).toLocaleString()}
                 />
                 <Area
                   type="monotone"
                   dataKey="compression"
-                  stroke="#22d3ee"
+                  stroke="#3ee0c4"
                   fill="url(#compFill)"
                   name="Compression"
                   strokeWidth={2}
@@ -344,12 +344,12 @@ function VisualMonitoring() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
                 <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ background: '#111827', border: '1px solid #334155' }} />
+                <Tooltip contentStyle={{ background: '#10161f', border: '1px solid rgba(62, 224, 196, 0.25)' }} />
                 <Legend />
-                <Bar dataKey="cam_in" stackId="in" fill="#22d3ee" name="camera" />
-                <Bar dataKey="lidar_in" stackId="in" fill="#10b981" name="lidar" />
-                <Bar dataKey="imu_in" stackId="in" fill="#f59e0b" name="imu" />
-                <Bar dataKey="audio_in" stackId="in" fill="#38bdf8" name="audio" />
+                <Bar dataKey="cam_in" stackId="in" fill="#3ee0c4" name="camera" />
+                <Bar dataKey="lidar_in" stackId="in" fill="#34d399" name="lidar" />
+                <Bar dataKey="imu_in" stackId="in" fill="#e8a838" name="imu" />
+                <Bar dataKey="audio_in" stackId="in" fill="#5b9fd4" name="audio" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -366,10 +366,10 @@ function VisualMonitoring() {
                   fontSize={11}
                 />
                 <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ background: '#111827', border: '1px solid #334155' }} />
+                <Tooltip contentStyle={{ background: '#10161f', border: '1px solid rgba(62, 224, 196, 0.25)' }} />
                 <Legend />
-                <Line type="monotone" dataKey="latency" stroke="#f59e0b" name="Latency ms" dot={false} />
-                <Line type="monotone" dataKey="quality" stroke="#10b981" name="Quality %" dot={false} />
+                <Line type="monotone" dataKey="latency" stroke="#e8a838" name="Latency ms" dot={false} />
+                <Line type="monotone" dataKey="quality" stroke="#34d399" name="Quality %" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -1,5 +1,5 @@
 .devices-view {
-  animation: fadeIn 0.5s ease-in;
+  animation: fadeIn 0.5s var(--ease-out);
 }
 
 .devices-grid {
@@ -16,7 +16,7 @@
   align-items: flex-start;
   margin-bottom: 1.5rem;
   padding-bottom: 1rem;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-card);
 }
 
 .device-badges {
@@ -28,13 +28,13 @@
 
 .device-header h3 {
   margin: 0 0 0.3rem 0;
-  color: #374151;
+  color: var(--text-on-card);
   font-size: 1.3rem;
 }
 
 .device-id {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
   font-size: 0.9rem;
   font-family: monospace;
 }
@@ -59,7 +59,7 @@
 
 .status-pending {
   background: #fef3c7;
-  color: #f59e0b;
+  color: var(--amber);
 }
 
 .device-info {
@@ -72,18 +72,18 @@
   display: flex;
   justify-content: space-between;
   padding: 0.6rem;
-  background: #f9fafb;
-  border-radius: 6px;
+  background: var(--bg-card-hover);
+  border-radius: var(--radius-sm);
 }
 
 .info-label {
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
 }
 
 .info-value {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-on-card);
 }
 
 .device-type {
@@ -98,18 +98,18 @@
 
 /* Camera types */
 .type-camera {
-  background: #dbeafe;
-  color: #1e40af;
+  background: rgba(26, 184, 160, 0.15);
+  color: #0f6b5c;
 }
 
 .type-stereo_camera {
-  background: #bfdbfe;
-  color: #1e3a8a;
+  background: rgba(26, 184, 160, 0.22);
+  color: #0f6b5c;
 }
 
 .type-depth_camera {
-  background: #93c5fd;
-  color: #1e3a8a;
+  background: rgba(91, 159, 212, 0.22);
+  color: #2563a8;
 }
 
 .type-thermal_camera {
@@ -119,13 +119,13 @@
 
 /* LiDAR and Radar */
 .type-lidar {
-  background: #e0e7ff;
-  color: #4338ca;
+  background: rgba(62, 224, 196, 0.18);
+  color: #0f7a6c;
 }
 
 .type-radar {
-  background: #ddd6fe;
-  color: #5b21b6;
+  background: rgba(91, 159, 212, 0.2);
+  color: #2563a8;
 }
 
 /* IMU and GPS */
@@ -156,8 +156,8 @@
 }
 
 .type-encoder {
-  background: #e9d5ff;
-  color: #6b21a8;
+  background: rgba(232, 168, 56, 0.22);
+  color: #92400e;
 }
 
 /* Motors and Actuators */
@@ -188,8 +188,8 @@
 }
 
 .type-edge_computer {
-  background: #e0e7ff;
-  color: #5b21b6;
+  background: rgba(26, 184, 160, 0.12);
+  color: #0f7a6c;
 }
 
 .type-gateway {
@@ -198,8 +198,8 @@
 }
 
 .type-network_switch {
-  background: #dbeafe;
-  color: #1e3a8a;
+  background: rgba(26, 184, 160, 0.15);
+  color: #0f6b5c;
 }
 
 .type-other {
@@ -208,7 +208,7 @@
 }
 
 .node-link {
-  color: #1e293b;
+  color: var(--text-on-card);
   font-family: monospace;
 }
 
@@ -225,7 +225,7 @@
 
 .sensors-header h4 {
   margin: 0;
-  color: #374151;
+  color: var(--text-on-card);
   font-size: 1.1rem;
 }
 
@@ -241,9 +241,9 @@
 
 .sensor-item {
   padding: 0.8rem;
-  background: #f9fafb;
-  border-radius: 6px;
-  border-left: 3px solid #1e293b;
+  background: var(--bg-card-hover);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
 }
 
 .sensor-info {
@@ -255,7 +255,7 @@
 
 .sensor-id {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-on-card);
   font-family: monospace;
 }
 
@@ -268,13 +268,13 @@
 }
 
 .type-camera {
-  background: #dbeafe;
-  color: #3b82f6;
+  background: rgba(26, 184, 160, 0.15);
+  color: var(--accent);
 }
 
 .type-lidar {
-  background: #e0e7ff;
-  color: #6366f1;
+  background: rgba(62, 224, 196, 0.18);
+  color: #0f7a6c;
 }
 
 .type-imu {
@@ -298,8 +298,8 @@
 }
 
 .type-pressure {
-  background: #e0e7ff;
-  color: #7c3aed;
+  background: rgba(91, 159, 212, 0.18);
+  color: #2563a8;
 }
 
 .type-other {
@@ -309,13 +309,13 @@
 
 .sensor-detail {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
   margin-top: 0.3rem;
 }
 
 .no-sensors {
   text-align: center;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
   padding: 1rem;
   font-style: italic;
 }
@@ -347,7 +347,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(5, 7, 12, 0.65);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -355,9 +355,11 @@
 }
 
 .modal-content {
-  background: white;
+  background: var(--bg-card);
+  color: var(--text-on-card);
   padding: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-card);
   max-width: 500px;
   width: 90%;
   max-height: 90vh;
@@ -384,7 +386,7 @@
 .form-group input[type="number"] {
   width: 100%;
   padding: 8px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-card);
   border-radius: 4px;
   box-sizing: border-box;
 }
@@ -392,7 +394,7 @@
 .form-select {
   width: 100%;
   padding: 8px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-card);
   border-radius: 4px;
   box-sizing: border-box;
 }
@@ -424,7 +426,7 @@
 
 .topics-hint {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
   margin-bottom: 0.8rem;
   font-style: italic;
 }
@@ -448,7 +450,7 @@
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: #1f2937;
+  background: var(--bg-elevated);
   color: white;
   padding: 0.4rem 0.6rem;
   border-radius: 4px;
@@ -462,9 +464,9 @@
 .connection-section {
   margin-top: 1.5rem;
   padding: 1rem;
-  background: #f9fafb;
+  background: var(--bg-card-hover);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-card);
 }
 
 .connection-header {
@@ -477,13 +479,13 @@
 .connection-header h4 {
   margin: 0;
   font-size: 1rem;
-  color: #374151;
+  color: var(--text-on-card);
 }
 
 .node-badge {
   padding: 0.3rem 0.8rem;
-  background: #dbeafe;
-  color: #1e40af;
+  background: rgba(26, 184, 160, 0.15);
+  color: #0f6b5c;
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -506,7 +508,7 @@
 .topics-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--text-on-card-muted);
   min-width: 120px;
 }
 
@@ -515,16 +517,16 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
   font-family: monospace;
   font-weight: 500;
 }
 
 .topic-pub {
-  background: #dbeafe;
-  color: #1e40af;
-  border: 1px solid #93c5fd;
+  background: rgba(26, 184, 160, 0.12);
+  color: #0f6b5c;
+  border: 1px solid rgba(26, 184, 160, 0.35);
 }
 
 .topic-sub {
@@ -560,15 +562,15 @@
 .topics-section {
   margin-top: 1.5rem;
   padding: 1rem;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
 }
 
 .topics-section h3 {
   margin: 0 0 1rem 0;
   font-size: 1rem;
-  color: #374151;
+  color: var(--text-on-card);
 }
 
 .topics-input-group {
@@ -580,8 +582,8 @@
 .topics-input-group .form-input {
   flex: 1;
   padding: 0.6rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
 }
 
@@ -590,7 +592,7 @@
 }
 
 .btn-warning {
-  background-color: #f59e0b;
+  background-color: var(--amber);
   color: white;
 }
 

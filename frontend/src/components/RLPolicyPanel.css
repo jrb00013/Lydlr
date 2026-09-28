@@ -8,11 +8,13 @@
   gap: 0.5rem;
   font-size: 1.1rem;
   margin-bottom: 1rem;
-  color: #c084fc;
+  font-family: var(--font-display);
+  color: var(--accent-bright);
 }
 
 .rl-mode-toggle {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
@@ -20,11 +22,12 @@
 
 .rl-label {
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--text-on-card-muted);
 }
 
 .rl-metrics {
   display: flex;
+  flex-wrap: wrap;
   gap: 2rem;
 }
 
@@ -36,19 +39,20 @@
 
 .rl-metric-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-on-card-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-family: var(--font-mono);
 }
 
 .rl-metric-value {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #e2e8f0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--text-on-card);
+  font-family: var(--font-mono);
 }
 
 .rl-empty {
-  color: #64748b;
+  color: var(--text-on-card-muted);
   font-size: 0.85rem;
 }
