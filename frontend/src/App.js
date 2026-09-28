@@ -18,7 +18,6 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import GroupsIcon from '@mui/icons-material/Groups';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
-import CompressIcon from '@mui/icons-material/Compress';
 import './App.css';
 import Dashboard from './components/Dashboard';
 import NodesView from './components/NodesView';
@@ -127,12 +126,16 @@ function AppShell() {
             aria-label="Primary"
           >
             <div className="sidebar__brand">
-              <div className="sidebar__logo" aria-hidden="true">
-                <CompressIcon />
-              </div>
+              <img
+                className="sidebar__logo-img"
+                src="/lydlr-mark.png"
+                alt=""
+                width={44}
+                height={44}
+              />
               <div className="sidebar__brand-text">
                 <span className="sidebar__name">Lydlr</span>
-                <span className="sidebar__tagline">Edge compression</span>
+                <span className="sidebar__tagline">AI · Compression · ROS2 · Edge</span>
               </div>
             </div>
 

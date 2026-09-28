@@ -13,17 +13,19 @@
   --bg-card-hover: #faf8f4;
   --bg-glass: rgba(14, 20, 28, 0.72);
 
-  /* Signal accents */
+  /* Signal accents — teal uplink + brand mustard from Lydlr mark */
+  --brand-mustard: #d4a017;
+  --brand-steel: #c5c9ce;
   --accent: #1ab8a0;
   --accent-bright: #3ee0c4;
   --accent-glow: rgba(26, 184, 160, 0.28);
-  --accent-secondary: #e8a838;
+  --accent-secondary: var(--brand-mustard);
   --cyan: #3ee0c4;
   --emerald: #34d399;
-  --amber: #e8a838;
+  --amber: #d4a017;
   --rose: #f07178;
   --drone: #5b9fd4;
-  --iot: #e8a838;
+  --iot: var(--brand-mustard);
 
   --text-primary: #eef2f6;
   --text-secondary: #9aa8b8;
