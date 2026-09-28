@@ -143,6 +143,7 @@ def eval_model(args: argparse.Namespace) -> dict:
                 num_levels=256,
             )
             true_payload = len(packed_idx) if packed_idx else coded_bytes
+            rate_source = tr_stats.get("rate_source", "fixed_length_bits")
 
             row = {
                 "frame": t,
@@ -155,6 +156,7 @@ def eval_model(args: argparse.Namespace) -> dict:
                 "true_rate_bits": tr_stats["true_rate_bits"],
                 "fixed_length_bits": tr_stats["fixed_length_bits"],
                 "proxy_vs_true_ratio": tr_stats["proxy_vs_true_ratio"],
+                "rate_source": rate_source,
                 "packed_index_bytes": float(true_payload),
                 "ratio": raw_bytes / max(coded_bytes, 1),
                 "ratio_true": raw_bytes / max(true_payload, 1),
@@ -163,6 +165,15 @@ def eval_model(args: argparse.Namespace) -> dict:
             }
             rows.append(row)
 
+    mean_rho = float(np.nanmean([r["proxy_vs_true_ratio"] for r in rows]))
+    rate_sources = sorted({r.get("rate_source", "unknown") for r in rows})
+    # Refuse marketing-style claims when proxy is wildly miscalibrated or rate
+    # is still fixed-length packing (entropy model contributed 0 wire bits).
+    claim_ok = (
+        "rans_bits" in rate_sources
+        and mean_rho == mean_rho  # not NaN
+        and 0.05 <= mean_rho <= 2.0
+    )
     summary = {
         "frames": len(rows),
         "mean_psnr": float(np.mean([r["psnr"] for r in rows])),
@@ -172,8 +183,14 @@ def eval_model(args: argparse.Namespace) -> dict:
         "mean_proxy_rate_bits": float(np.mean([r["proxy_rate_bits"] for r in rows])),
         "mean_true_rate_bits": float(np.mean([r["true_rate_bits"] for r in rows])),
         "mean_fixed_length_bits": float(np.mean([r["fixed_length_bits"] for r in rows])),
-        "mean_proxy_vs_true_ratio": float(
-            np.nanmean([r["proxy_vs_true_ratio"] for r in rows])
+        "mean_proxy_vs_true_ratio": mean_rho,
+        "rate_sources": rate_sources,
+        "claim_ok": claim_ok,
+        "claim_gate": (
+            "ok: rans payload + calibrated proxy"
+            if claim_ok
+            else "blocked: need rate_source=rans_bits and 0.05<=proxy_vs_true<=2.0 "
+            "(do not advertise bandwidth reduction from this run)"
         ),
         "mean_ratio": float(np.mean([r["ratio"] for r in rows])),
         "mean_ratio_true": float(np.mean([r["ratio_true"] for r in rows])),

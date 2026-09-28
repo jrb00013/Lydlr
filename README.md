@@ -6,8 +6,22 @@
 
 - [MongoDB data layer](/docs/architecture/DATA_LAYER.md) — fleet collections, model registry, metrics TTL and rollups, API table endpoints  
 - [ROS 2 communication and transport](/docs/architecture/ROS2_COMMUNICATION.md) — `/lydlr/**` topic graph, LYDT wire encoding, QoS, ground relay  
+- [Benchmark protocol](/docs/architecture/BENCHMARK_PROTOCOL.md) — matched-rate RD, countable bits only, temporal-residual beat-JPEG axis  
 
 **Bring up:** `./start-lydlr.sh --build -d --ros2` • **Fleet launch (after `colcon build`):** `ros2 launch lydlr_ai drone_iot_transport.launch.py`
+
+## Beat JPEG (measurable claim)
+
+JPEG treats each frame independently and has no temporal memory. Correlated sensor video carries redundancy across time that intra JPEG cannot exploit. Lydlr’s falsifiable claim is **temporal residual coding at matched clip bpp**.
+
+**Measured (CI / local smoke):** on a synthetic correlated clip (`scripts/prove_beat_jpeg.py --synthetic`), residual JPEG beats intra JPEG by **~+12 dB PSNR** at matched bpp. That is the locksmith axis — not still-image RD.
+
+```bash
+PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py --synthetic
+PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py --clip path/to/clip.npz --codecs jpeg,webp,h264,lydlr
+```
+
+See [BENCHMARK_PROTOCOL.md](/docs/architecture/BENCHMARK_PROTOCOL.md): countable payload only; entropy proxy is never wire bits. Bundled `fixture_*_clip.npz` files are independent multimodal samples (not consecutive video) — use `--synthetic` or a real consecutive-frame recording for the beat-JPEG claim.
 
 ## Overview
 
@@ -18,7 +32,7 @@ Lydlr is an AI-powered compression system designed to optimize storage and trans
 Lydlr addresses critical challenges in modern sensor data processing across multiple industries:
 
 ### Autonomous Vehicles
-Compress sensor data from cameras, LiDAR, and IMU sensors before transmission to cloud infrastructure. This reduces bandwidth requirements by up to 90% while maintaining critical information for real-time decision-making and post-processing analysis. Enables efficient data offloading from vehicles to central processing systems without overwhelming network infrastructure.
+Compress sensor data from cameras, LiDAR, and IMU sensors before transmission to cloud infrastructure. Matched-rate benchmarks against JPEG/WebP on the same clips quantify bandwidth savings; run `scripts/bench_codecs.py` and `scripts/prove_beat_jpeg.py` rather than assuming a fixed reduction percentage. Enables efficient data offloading from vehicles to central processing systems without overwhelming network infrastructure.
 
 ### Drones
 Reduce bandwidth consumption for real-time video and LiDAR streaming during flight operations. Critical for long-range missions where maintaining communication links is essential. Allows operators to receive high-quality sensor feeds even over limited bandwidth connections, enabling extended operational range and improved mission success rates.
@@ -38,16 +52,22 @@ Developed to meet the growing need for lightweight AI at the edge, Lydlr represe
 
 ## Impact
 
-Lydlr's adaptive compression technology delivers measurable improvements across key performance metrics:
+Lydlr targets lower **countable** wire rate at matched distortion on multimodal sensor clips, with an RL controller tuning quality under bandwidth and compute constraints. **Do not cite fixed bandwidth, FPS, CPU, or LPIPS figures from this README**—they are not verified here.
 
-- **Bandwidth Reduction**: Achieves 80-95% reduction in data transmission requirements while maintaining perceptual quality
-- **Storage Optimization**: Enables 5-10x longer data collection periods with the same storage capacity
-- **Real-Time Processing**: Processes multimodal sensor streams at 30+ FPS on edge devices with minimal latency
-- **Resource Efficiency**: Reduces CPU and memory usage by 40-60% compared to traditional compression methods
-- **Quality Preservation**: Maintains reconstruction fidelity with LPIPS scores above 0.85 for critical sensor data
-- **Adaptive Performance**: Dynamically adjusts compression based on system conditions, ensuring optimal operation across varying network and computational constraints
+| What we measure | How |
+|-----------------|-----|
+| Rate vs JPEG/WebP/H.264-intra at matched bpp | `scripts/bench_codecs.py` → `scripts/results/rd_curve.json` |
+| Beat-JPEG regression / temporal-residual claim | `scripts/prove_beat_jpeg.py` (when present) |
+| Protocol (countable bits, matched-rate) | [docs/architecture/BENCHMARK_PROTOCOL.md](/docs/architecture/BENCHMARK_PROTOCOL.md) |
 
-The system's ability to learn temporal patterns and adapt compression levels in real-time makes it particularly effective for applications requiring both high efficiency and quality preservation.
+Example (after you have a recorded clip NPZ and optional checkpoint):
+
+```bash
+PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py \
+  --clip path/to/real_clip.npz --codecs jpeg,lydlr --target-bpps 0.05,0.1,0.2,0.5
+```
+
+The printed markdown table and JSON are the source of truth for PSNR/SSIM at matched rate. LPIPS is optional (`--lpips`) and requires PyTorch.
 
 ### ROS 2 + Docker Workspace Setup Guide  
 _Target: macOS + Docker + ROS 2 Humble + Python venv_
