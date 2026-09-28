@@ -121,14 +121,15 @@ def main() -> int:
     parser.add_argument(
         "--fixture",
         type=Path,
-        default=ROOT / "scripts" / "fixture_drone_clip.npz",
+        default=ROOT / "scripts" / "fixture_correlated_clip.npz",
+        help="Temporally correlated NxHxWx3 clip (default: fixture_correlated_clip.npz)",
     )
-    parser.add_argument("--frames", type=int, default=16)
+    parser.add_argument("--frames", type=int, default=12)
     parser.add_argument("--max-width", type=int, default=320)
     parser.add_argument(
         "--synthetic",
         action="store_true",
-        help="Force synthetic correlated clip (CI default path)",
+        help="Force in-memory synthetic_correlated_clip (ignore fixture)",
     )
     args = parser.parse_args()
 
