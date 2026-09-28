@@ -89,8 +89,14 @@ def rate_report(
     proxy_bits: torch.Tensor,
     indices: torch.Tensor | None,
     num_levels: int = 256,
+    symbol_probs: torch.Tensor | np.ndarray | None = None,
 ) -> Tuple[Dict[str, float], bytes]:
-    """Combine proxy entropy estimate with countable packed indices."""
+    """Combine proxy entropy estimate with countable wire payload.
+
+    Prefer rANS (``lydlr_ai.model.entropy_coder.rans_encode``) when available so
+    ``true_rate_bits`` is the length of a real bitstream, not fixed-length packing.
+    Falls back to uint8 packing and labels ``rate_source`` accordingly.
+    """
     proxy = float(proxy_bits.mean().detach().cpu()) if proxy_bits is not None and proxy_bits.numel() else 0.0
     if indices is None:
         stats = {
@@ -99,16 +105,45 @@ def rate_report(
             "fixed_length_bits": 0.0,
             "packed_bytes": 0.0,
             "proxy_vs_true_ratio": float("nan"),
+            "rate_source": "none",
         }
         return stats, b""
     countable = countable_rate_from_indices(indices, num_levels=num_levels)
-    packed = pack_indices_u8(indices, num_levels=num_levels)
-    true_b = countable["true_rate_bits"]
+    fixed = countable["fixed_length_bits"]
+    idx_np = indices.detach().cpu().numpy().reshape(-1).astype(np.uint8)
+    packed = b""
+    rate_source = "fixed_length_bits"
+    true_b = float(fixed)
+
+    try:
+        from lydlr_ai.model.entropy_coder import empirical_pmf, rans_encode
+
+        if symbol_probs is None:
+            probs = empirical_pmf(idx_np, max(num_levels, int(idx_np.max()) + 1))
+        else:
+            if isinstance(symbol_probs, torch.Tensor):
+                probs = symbol_probs.detach().float().cpu().numpy().astype(np.float64).reshape(-1)
+            else:
+                probs = np.asarray(symbol_probs, dtype=np.float64).reshape(-1)
+            if probs.size < num_levels:
+                probs = np.pad(probs, (0, num_levels - probs.size))
+            probs = probs[: max(num_levels, int(idx_np.max()) + 1)]
+            s = probs.sum()
+            probs = probs / s if s > 0 else empirical_pmf(idx_np, probs.size)
+        packed = rans_encode(idx_np, probs)
+        true_b = float(len(packed) * 8)
+        rate_source = "rans_bits"
+    except Exception:
+        packed = pack_indices_u8(indices, num_levels=num_levels)
+        true_b = float(len(packed) * 8) / max(int(indices.shape[0]), 1)
+        rate_source = "fixed_length_bits"
+
     stats = {
         "proxy_rate_bits": proxy,
         "true_rate_bits": true_b,
-        "fixed_length_bits": countable["fixed_length_bits"],
-        "packed_bytes": countable["packed_bytes"],
+        "fixed_length_bits": fixed,
+        "packed_bytes": float(len(packed)),
         "proxy_vs_true_ratio": proxy / max(true_b, 1e-8),
+        "rate_source": rate_source,
     }
     return stats, packed
