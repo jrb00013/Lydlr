@@ -18,8 +18,8 @@ from lydlr_ai.utils.bitrate_math import (
 
 def test_bits_and_bpp():
     assert bits_from_bytes(10) == 80
-    assert bpp(100, 10, 10) == pytest.approx(0.8)
-    assert mean_bpp([b"abcd", b"efgh"], 8, 8) == pytest.approx(0.5)
+    assert bpp(100, 10, 10) == pytest.approx(8.0)  # 800 bits / 100 px
+    assert mean_bpp([b"abcd", b"efgh"], 8, 8) == pytest.approx(0.5)  # 32 bits / 64 px
 
 
 def test_kbps_and_match():
