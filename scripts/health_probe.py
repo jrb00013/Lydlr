@@ -39,6 +39,7 @@ def check_imports() -> dict:
         "lydlr_ai.model.entropy_coder",
         "lydlr_ai.model.temporal_residual",
         "lydlr_ai.model.temporal_rans",
+        "lydlr_ai.model.temporal_dct",
         "lydlr_ai.communication.wire",
         "lydlr_ai.communication.link_policy",
         "lydlr_ai.utils.bitrate_math",
