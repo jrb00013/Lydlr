@@ -1,0 +1,71 @@
+.compression-waterfall h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  margin: 0 0 12px 0;
+  font-family: var(--font-display);
+  color: var(--text-on-card);
+}
+
+.compression-waterfall__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.compression-waterfall__stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compression-waterfall__breakdown {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-card);
+}
+
+.compression-waterfall__breakdown h3 {
+  font-size: 0.85rem;
+  margin: 0 0 10px 0;
+  font-family: var(--font-display);
+  color: var(--text-on-card);
+}
+
+.compression-waterfall__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compression-waterfall__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: rgba(26, 35, 48, 0.04);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.compression-waterfall__mod {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  color: var(--text-on-card);
+  font-weight: 600;
+}
+
+.compression-waterfall__vals {
+  color: var(--text-on-card-muted);
+  font-family: var(--font-mono);
+}
+
+.compression-waterfall__pct {
+  margin-left: 6px;
+  color: var(--emerald);
+  font-weight: 600;
+}
