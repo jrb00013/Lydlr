@@ -14,8 +14,10 @@
 - [MongoDB data layer](/docs/architecture/DATA_LAYER.md) — fleet collections, model registry, metrics TTL and rollups, API table endpoints  
 - [ROS 2 communication and transport](/docs/architecture/ROS2_COMMUNICATION.md) — `/lydlr/**` topic graph, LYDT wire encoding, QoS, ground relay  
 - [Benchmark protocol](/docs/architecture/BENCHMARK_PROTOCOL.md) — matched-rate RD, countable bits only, temporal-residual beat-JPEG axis  
+- [HTTP API surface](/docs/architecture/API_SURFACE.md) — console fleet / metrics / preview contract  
+- [Ops runbook](/docs/guides/OPS_RUNBOOK.md) · [CI locally](/docs/guides/CI_LOCAL.md) · [Contributing](/CONTRIBUTING.md)
 
-**Bring up:** `./start-lydlr.sh --build -d --ros2` • **Fleet launch (after `colcon build`):** `ros2 launch lydlr_ai drone_iot_transport.launch.py`
+**Bring up:** `./start-lydlr.sh --build -d --ros2` • **Fleet launch (after `colcon build`):** `ros2 launch lydlr_ai drone_iot_transport.launch.py` · **Local CI mirror:** `make ci-smoke`
 
 ## Beat JPEG (measurable claim)
 
