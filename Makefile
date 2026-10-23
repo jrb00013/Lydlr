@@ -21,9 +21,12 @@ health:
 prove-beat:
 	$(PYTHON) scripts/prove_beat_jpeg.py \
 		--fixture scripts/fixture_correlated_clip.npz --frames 12 --max-width 160
+	$(PYTHON) scripts/prove_lydlr_beats_jpeg.py \
+		--fixture scripts/fixture_correlated_clip.npz --frames 8 --max-width 96
 
 bench-smoke:
 	mkdir -p scripts/results
 	$(PYTHON) scripts/bench_codecs.py \
-		--clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp --target-bpps 0.2 \
+		--clip scripts/fixture_correlated_clip.npz --codecs jpeg,lydlr --target-bpps 0.5 \
+		--max-frames 6 \
 		--out scripts/results/ci_rd_smoke.json

@@ -127,6 +127,7 @@ def _lydlr_match_at_bpp(
             "target_quality": float(best["target_quality"]),
             "bits_per_frame": float(best["bits"]),
             "rate_source": best.get("rate_source", report.get("rate_source")),
+            "codec_path": best.get("codec_path") or report.get("codec_path") or "",
             "proxy_bits_per_frame": float(best.get("proxy_bits", 0.0)),
             "fixed_length_bits_per_frame": float(best.get("fixed_length_bits", 0.0)),
         }
@@ -258,7 +259,9 @@ def _markdown_table(rows: Sequence[dict]) -> str:
     ]
     for r in rows:
         notes = r.get("reason") or r.get("rate_source") or r.get("rate_measurement") or ""
-        if r.get("codec") == "lydlr" and r.get("trained") is False:
+        if r.get("codec_path"):
+            notes = f"{r['codec_path']}; {notes}".strip("; ")
+        elif r.get("codec") == "lydlr" and r.get("trained") is False:
             notes = (notes + "; random weights").strip("; ")
         psnr = r.get("psnr_mean")
         ssim = r.get("ssim_mean")

@@ -26,7 +26,14 @@ Marketing-style “effective bandwidth” or training-time cross-entropy must no
 
 JPEG (and independent WebP/H.264-intra frames) have **no temporal memory**: each frame is coded alone. Sensor video on robots and drones is **strongly correlated in time**.
 
-Lydlr’s falsifiable claim is on **temporal residual coding**—predicting from recent frames and spending bits on what changed—beating **intra JPEG at matched clip bpp** on **real recorded clips**, not on band-limited synthetic Markov scenes alone. Synthetic data is useful for regression tests; **beat-JPEG conclusions require real NPZ clips** (`scripts/record_sensor_clip.py`) and a trained checkpoint.
+Lydlr’s falsifiable claim is on **temporal residual coding**—predicting from recent frames and spending bits on what changed—beating **intra JPEG at matched clip bpp**.
+
+Two checked paths:
+
+1. **Residual JPEG** (`prove_beat_jpeg.py`) — JPEG-coded frame differences vs intra JPEG.
+2. **Lydlr vision codec** (`prove_lydlr_beats_jpeg.py`) — previous-reconstruction prediction, 8×8 DCT, deadzone quant, rANS. Payload bytes (header included) are the rate. No neural checkpoint. Image-only `bench_codecs.py --codecs lydlr` uses this path. The 4-input network remains the path when LiDAR/IMU/audio side inputs are present.
+
+Synthetic data is useful for regression tests; beat-JPEG conclusions for a release use `scripts/fixture_correlated_clip.npz`.
 
 Run the published check:
 

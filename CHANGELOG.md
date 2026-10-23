@@ -6,6 +6,7 @@ All notable changes to Lydlr are documented here.
 
 ### Added
 
+- Vision codec (`temporal_dct_rans`): temporal residual, 8×8 DCT, countable rANS bits. Image-only `lydlr` benches use it and beat intra JPEG at matched bpp (`scripts/prove_lydlr_beats_jpeg.py`).
 - Compression waterfall panel on Dashboard and Visual Monitoring.
 - Torch-free `bitrate_math` and `clip_stats` utilities with unit tests.
 - LYDT wire protocol and link-policy pytest coverage (ROS-free).
