@@ -23,10 +23,11 @@
 
 JPEG treats each frame independently and has no temporal memory. Correlated sensor video carries redundancy across time that intra JPEG cannot exploit. Lydlr’s falsifiable claim is **temporal residual coding at matched clip bpp**.
 
-**Measured (CI / local smoke):** on `scripts/fixture_correlated_clip.npz` (consecutive frames), residual JPEG beats intra JPEG by **~+12 dB PSNR** at matched bpp. That is the locksmith axis — not still-image RD.
+**Measured (CI / local smoke):** on `scripts/fixture_correlated_clip.npz` (consecutive frames), residual JPEG beats intra JPEG by **~+12 dB PSNR** at matched bpp. The Lydlr vision codec (temporal residual + 8×8 DCT + countable rANS, no checkpoint) also beats intra JPEG on that clip — see `scripts/prove_lydlr_beats_jpeg.py`. That is the locksmith axis — not still-image RD.
 
 ```bash
 PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py
+PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_lydlr_beats_jpeg.py
 PYTHONPATH=ros2/src/lydlr_ai python scripts/generate_correlated_clip.py   # regenerate fixture
 PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py --clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp
 ```
