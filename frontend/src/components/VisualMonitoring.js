@@ -14,6 +14,7 @@ import {
   Area,
 } from 'recharts';
 import SignalOcean from './SignalOcean';
+import CompressionWaterfall from './CompressionWaterfall';
 import { useMetricsWebSocket } from '../hooks/useMetricsWebSocket';
 import { useSmartPolling } from '../hooks/useSmartPolling';
 import { useDemoPulse } from '../hooks/useDemoPulse';
@@ -221,6 +222,7 @@ function VisualMonitoring() {
       </section>
 
       <div className="visual-below">
+        <CompressionWaterfall metric={selectedMetric} />
         <div className="live-strip">
           <div className="live-strip__item">
             <span className="live-strip__label">Compression</span>
