@@ -229,6 +229,35 @@ def decode_heartbeat(data: bytes) -> Tuple[str, Dict[str, Any]]:
     return node_id, meta
 
 
+def encode_deploy_ack(
+    node_id: str,
+    *,
+    model_version: str,
+    status: str = "ok",
+    detail: str = "",
+    seq: int = 0,
+) -> bytes:
+    """Acknowledge a model deploy on an edge node (MSG_DEPLOY_ACK)."""
+    return _pack(
+        MSG_DEPLOY_ACK,
+        node_id,
+        {
+            "model_version": model_version,
+            "status": status,
+            "detail": detail,
+        },
+        b"",
+        seq=seq,
+    )
+
+
+def decode_deploy_ack(data: bytes) -> Tuple[str, Dict[str, Any]]:
+    msg_type, node_id, meta, _, _, _ = _unpack(data)
+    if msg_type != MSG_DEPLOY_ACK:
+        raise ValueError(f"expected deploy_ack, got {msg_type}")
+    return node_id, meta
+
+
 def to_uint8_array_bytes(frame: bytes) -> list:
     return list(frame)
 

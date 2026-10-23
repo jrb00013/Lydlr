@@ -22,6 +22,7 @@ import LoadingSpinner from './ui/LoadingSpinner';
 import EmptyState from './ui/EmptyState';
 import LinkBudgetPanel from './LinkBudgetPanel';
 import RLPolicyPanel from './RLPolicyPanel';
+import CompressionWaterfall from './CompressionWaterfall';
 import SignalOcean from './SignalOcean';
 import './Dashboard.css';
 import { useSmartPolling } from '../hooks/useSmartPolling';
@@ -288,6 +289,7 @@ function Dashboard({ connected }) {
         </div>
 
         <LinkBudgetPanel />
+        <CompressionWaterfall metric={latestMetric} />
         <RLPolicyPanel />
 
         <div className="charts-section">

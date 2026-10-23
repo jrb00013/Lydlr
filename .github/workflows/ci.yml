@@ -17,23 +17,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pillow opencv-python-headless pytest
+          pip install -r requirements-dev.txt
           pip install torch --index-url https://download.pytorch.org/whl/cpu || true
 
       - name: Verify bench_baselines import
         run: |
           PYTHONPATH=ros2/src/lydlr_ai python -c "from lydlr_ai.model import bench_baselines; print('bench_baselines ok')"
 
-      - name: Pytest (entropy + temporal residual)
+      - name: Health probe (fixtures + imports)
         run: |
-          set -e
-          for f in tests/test_entropy_coder.py tests/test_temporal_residual.py; do
-            if [ -f "$f" ]; then
-              PYTHONPATH=ros2/src/lydlr_ai pytest "$f" -q
-            else
-              echo "skip missing $f"
-            fi
-          done
+          PYTHONPATH=ros2/src/lydlr_ai python scripts/health_probe.py
+          PYTHONPATH=ros2/src/lydlr_ai python scripts/check_fixtures.py
+
+      - name: Pytest (full ROS-free suite)
+        run: |
+          PYTHONPATH=ros2/src/lydlr_ai pytest tests/ -q
 
       - name: prove_beat_jpeg (checked-in correlated clip)
         run: |
@@ -45,3 +43,7 @@ jobs:
           PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py \
             --clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp --target-bpps 0.2 \
             --out scripts/results/ci_rd_smoke.json
+
+      - name: Summarize RD smoke JSON
+        run: |
+          PYTHONPATH=ros2/src/lydlr_ai python scripts/summarize_rd_json.py scripts/results/ci_rd_smoke.json
