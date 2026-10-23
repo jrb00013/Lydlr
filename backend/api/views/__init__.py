@@ -49,6 +49,7 @@ from backend.api.views.preview_views import (
     NodePreviewLatestView,
 )
 from backend.api.views.demo_views import DemoPulseView, DemoAutopilotView
+from backend.api.views.codec_views import CodecFrameView
 
 __all__ = [
     # Base
@@ -100,5 +101,6 @@ __all__ = [
     'NodePreviewLatestView',
     'DemoPulseView',
     'DemoAutopilotView',
+    'CodecFrameView',
 ]
 

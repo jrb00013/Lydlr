@@ -23,17 +23,25 @@ async def init_connections():
         # MongoDB
         mongodb_url = os.getenv(
             'MONGODB_URL',
-            'mongodb://lydlr:lydlr_password@mongodb:27017/lydlr_db?authSource=admin'
+            'mongodb://127.0.0.1:27017/lydlr_db',
         )
-        mongodb_client = AsyncIOMotorClient(mongodb_url)
+        mongodb_client = AsyncIOMotorClient(
+            mongodb_url,
+            serverSelectionTimeoutMS=800,
+            connectTimeoutMS=800,
+        )
         db = mongodb_client.lydlr_db
         
         # Test MongoDB connection
         await mongodb_client.admin.command('ping')
         
         # Redis
-        redis_url = os.getenv('REDIS_URL', 'redis://redis:6379')
-        redis_client = aioredis.from_url(redis_url, decode_responses=True)
+        redis_url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379')
+        redis_client = aioredis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=0.8,
+        )
         redis_pubsub = redis_client.pubsub()
         
         # Test Redis connection

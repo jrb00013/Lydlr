@@ -9,12 +9,12 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  */
 export function useSmartPolling(callback, options = {}) {
   const {
-    interval = 10000, // Default 10 seconds
+    interval = 10000,
     enabled = true,
     immediate = true,
     onError = null,
-    maxInterval = 60000, // Max 60 seconds
-    minInterval = 5000, // Min 5 seconds
+    maxInterval = 60000,
+    minInterval = 5000,
   } = options;
 
   const [isPolling, setIsPolling] = useState(enabled);
@@ -25,55 +25,31 @@ export function useSmartPolling(callback, options = {}) {
   const callbackRef = useRef(callback);
   const isVisibleRef = useRef(true);
 
-  // Update callback ref when it changes
   useEffect(() => {
     callbackRef.current = callback;
   }, [callback]);
 
-  // Handle page visibility
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      isVisibleRef.current = !document.hidden;
-      if (!document.hidden && isPolling) {
-        // Resume polling when tab becomes visible
-        scheduleNextPoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isPolling, scheduleNextPoll]);
-
   const scheduleNextPoll = useCallback(() => {
-    // Clear any existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-
-    // Don't schedule if tab is hidden
     if (!isVisibleRef.current) {
       return;
     }
 
-    // Calculate backoff interval (exponential backoff on errors)
     const backoffMultiplier = Math.min(Math.pow(1.5, errorCountRef.current), maxInterval / interval);
     const nextInterval = Math.min(
       Math.max(interval * backoffMultiplier, minInterval),
       maxInterval
     );
-
     currentIntervalRef.current = nextInterval;
 
     timeoutRef.current = setTimeout(async () => {
       if (!isVisibleRef.current || !isPolling) {
         return;
       }
-
       try {
         await callbackRef.current();
-        // Reset error count on success
         errorCountRef.current = 0;
         currentIntervalRef.current = interval;
       } catch (error) {
@@ -82,21 +58,31 @@ export function useSmartPolling(callback, options = {}) {
           onError(error, errorCountRef.current);
         }
       }
-
-      // Schedule next poll
       scheduleNextPoll();
     }, nextInterval);
   }, [interval, minInterval, maxInterval, isPolling, onError]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isVisibleRef.current = !document.hidden;
+      if (!document.hidden && isPolling) {
+        scheduleNextPoll();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPolling, scheduleNextPoll]);
 
   useEffect(() => {
     if (!enabled || !isPolling) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      return;
+      return undefined;
     }
 
-    // Immediate execution if requested
     if (immediate) {
       callbackRef.current().catch((error) => {
         errorCountRef.current += 1;
@@ -106,20 +92,12 @@ export function useSmartPolling(callback, options = {}) {
       });
     }
 
-    // Schedule first poll
     scheduleNextPoll();
-
-    // Store refs for cleanup
     const timeoutId = timeoutRef.current;
     const intervalId = intervalRef.current;
-
     return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
   }, [enabled, isPolling, interval, immediate, scheduleNextPoll, onError]);
 
@@ -144,4 +122,3 @@ export function useSmartPolling(callback, options = {}) {
     errorCount: errorCountRef.current,
   };
 }
-

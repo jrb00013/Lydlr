@@ -19,10 +19,12 @@ from backend.api.views import (
 )
 from backend.api.views.fleet_views import FleetLinkPolicyView, FleetLinkHealthView, rl_policy
 from backend.api.views.federated_views import FederatedRoundDetailView, FederatedRoundListView
+from backend.api.views.codec_views import CodecFrameView
 
 urlpatterns = [
     path('', root, name='root'),
     path('health/', health_check, name='health'),
+    path('codec/frame/', CodecFrameView.as_view(), name='codec-frame'),
     path('nodes/', NodeListView.as_view(), name='nodes-list'),
     path('nodes/create/', NodeCreateView.as_view(), name='node-create'),
     path('nodes/config/', NodeConfigurationView.as_view(), name='node-config'),

@@ -176,6 +176,78 @@ def encode_temporal_dct(
     return payload, recons, stats
 
 
+def encode_frame(
+    frame: np.ndarray,
+    prev: np.ndarray | None = None,
+    *,
+    qstep: float = 16.0,
+) -> Tuple[bytes, np.ndarray, dict]:
+    """Encode one RGB frame against the previous reconstruction.
+
+    ``prev`` is the prior reconstruction (or None for an I-frame predicted
+    from mid-grey). The payload is a one-frame LDCT blob; its length is the
+    countable rate.
+    """
+    qstep = float(qstep)
+    if qstep <= 0:
+        raise ValueError("qstep must be positive")
+    src = np.asarray(frame, dtype=np.uint8)
+    padded, orig_h, orig_w = _pad8(src)
+    if prev is None:
+        pred = np.full(padded.shape, 128.0, dtype=np.float32)
+    else:
+        prev_p, _, _ = _pad8(np.asarray(prev, dtype=np.uint8))
+        if prev_p.shape != padded.shape:
+            pred = np.full(padded.shape, 128.0, dtype=np.float32)
+        else:
+            pred = prev_p.astype(np.float32)
+    coef = _dct_image(padded.astype(np.float32) - pred)
+    q = np.clip(np.rint(coef / qstep), -127, 127).astype(np.int16)
+    symbols = (q + 127).astype(np.uint8).reshape(-1)
+    u16 = _pmf_u16(symbols)
+    pmf = _pmf_from_u16(u16)
+    coded = rans_encode(symbols, pmf)
+    head = _HEAD.pack(MAGIC, VERSION, 0, qstep, 1, padded.shape[0], padded.shape[1])
+    payload = head + u16.tobytes() + coded
+    recon_full = np.clip(pred + _idct_image(q.astype(np.float32) * qstep), 0, 255)
+    recon = recon_full[:orig_h, :orig_w].astype(np.uint8)
+    raw_bytes = int(src.size)
+    stats = {
+        "bpp": float(len(payload) * 8 / max(orig_h * orig_w, 1)),
+        "bytes_in": raw_bytes,
+        "bytes_out": len(payload),
+        "compression_ratio": float(raw_bytes) / float(max(len(payload), 1)),
+        "qstep": qstep,
+        "rate_source": "rans_bits",
+        "codec_path": "temporal_dct_rans",
+        "keyframe": prev is None,
+    }
+    return payload, recon, stats
+
+
+def decode_frame(payload: bytes, prev: np.ndarray | None = None) -> np.ndarray:
+    """Invert ``encode_frame``. ``prev`` must be the same prediction the encoder used."""
+    if len(payload) < _HEAD.size + 512:
+        raise ValueError("truncated LDCT payload")
+    magic, ver, _pad, qstep, n, h, w = _HEAD.unpack_from(payload, 0)
+    if magic != MAGIC or ver != VERSION or int(n) != 1:
+        raise ValueError("decode_frame expects a one-frame LDCT payload")
+    off = _HEAD.size
+    u16 = np.frombuffer(payload[off : off + 512], dtype="<u2").copy()
+    symbols = rans_decode(payload[off + 512 :], int(h) * int(w) * 3, _pmf_from_u16(u16))
+    q = symbols.reshape(int(h), int(w), 3).astype(np.int16) - 127
+    if prev is None:
+        pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
+    else:
+        prev_p, _, _ = _pad8(np.asarray(prev, dtype=np.uint8))
+        if prev_p.shape != (int(h), int(w), 3):
+            pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
+        else:
+            pred = prev_p.astype(np.float32)
+    recon = np.clip(pred + _idct_image(q.astype(np.float32) * float(qstep)), 0, 255)
+    return recon.astype(np.uint8)
+
+
 def decode_temporal_dct(payload: bytes) -> List[np.ndarray]:
     """Decode a payload from ``encode_temporal_dct``."""
     if len(payload) < _HEAD.size + 512:

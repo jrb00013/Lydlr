@@ -26,6 +26,7 @@ import CompressionWaterfall from './CompressionWaterfall';
 import SignalOcean from './SignalOcean';
 import './Dashboard.css';
 import { useSmartPolling } from '../hooks/useSmartPolling';
+import { useVisionCodec } from '../hooks/useVisionCodec';
 import { useMetricsWebSocket } from '../hooks/useMetricsWebSocket';
 import { useDemoPulse } from '../hooks/useDemoPulse';
 import { apiBaseUrl, previewJpegUrl } from '../api/lydlrApi';
@@ -83,30 +84,38 @@ function Dashboard({ connected }) {
     lastMetricAtRef,
   });
 
-  const fetchStats = useCallback(async () => {
-    const res = await fetch(`${apiBaseUrl()}/api/stats/`);
-    if (res.ok) setStats(await res.json());
-  }, []);
-
-  const fetchFleet = useCallback(async () => {
-    const res = await fetch(`${apiBaseUrl()}/api/nodes/`);
-    if (res.ok) setFleetNodes(await res.json());
-  }, []);
-
-  const fetchLinkHealth = useCallback(async () => {
+  const fetchJson = useCallback(async (path) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
     try {
-      const res = await fetch(`${apiBaseUrl()}/api/fleet/link-policy/health/`);
-      if (res.ok) setLinkHealth(await res.json());
+      const res = await fetch(`${apiBaseUrl()}${path}`, { signal: ctrl.signal });
+      if (!res.ok) return null;
+      return await res.json();
     } catch (_) {
-      /* optional */
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    const body = await fetchJson('/api/stats/');
+    if (body) setStats(body);
+  }, [fetchJson]);
+
+  const fetchFleet = useCallback(async () => {
+    const body = await fetchJson('/api/nodes/');
+    if (Array.isArray(body)) setFleetNodes(body);
+  }, [fetchJson]);
+
+  const fetchLinkHealth = useCallback(async () => {
+    const body = await fetchJson('/api/fleet/link-policy/health/');
+    if (body) setLinkHealth(body);
+  }, [fetchJson]);
+
   const fetchRecentMetrics = useCallback(async () => {
-    const res = await fetch(`${apiBaseUrl()}/api/metrics/?limit=30`);
-    if (!res.ok) return;
-    const rows = await res.json();
-    if (!rows.length) return;
+    const rows = await fetchJson('/api/metrics/?limit=30');
+    if (!Array.isArray(rows) || !rows.length) return;
     setLatestMetric(rows[0]);
     const history = [...rows].reverse().map((m) => ({
       timestamp: `${(m.node_id || '').replace('node_', '').replace('iot_gateway_', 'gw')} · ${new Date(m.timestamp).toLocaleTimeString()}`,
@@ -115,7 +124,7 @@ function Dashboard({ connected }) {
       quality: m.quality_score,
     }));
     setMetricsHistory(history.slice(-30));
-  }, []);
+  }, [fetchJson]);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -159,6 +168,9 @@ function Dashboard({ connected }) {
     maxInterval: 20000,
   });
 
+  const { metric: codecMetric, previews: codecPreviews } = useVisionCodec(connected);
+  const shownMetric = codecMetric || latestMetric;
+
   const droneNodes = fleetNodes.filter((n) => n.vertical === 'drone');
   const iotNodes = fleetNodes.filter((n) => n.vertical === 'iot');
   const focusNode = latestMetric?.node_id || fleetNodes[0]?.node_id;
@@ -167,7 +179,7 @@ function Dashboard({ connected }) {
     [latestMetric]
   );
 
-  if (loading) {
+  if (loading && !shownMetric) {
     return <LoadingSpinner message="Loading edge fleet…" />;
   }
 
@@ -201,7 +213,9 @@ function Dashboard({ connected }) {
             </div>
             <div className="hero-stat">
               <span className="hero-stat__value">
-                {stats.avg_compression_ratio > 0
+                {codecMetric?.compression_ratio
+                  ? `${Number(codecMetric.compression_ratio).toFixed(1)}×`
+                  : stats.avg_compression_ratio > 0
                   ? `${stats.avg_compression_ratio.toFixed(1)}×`
                   : latestMetric?.compression_ratio != null
                     ? `${Number(latestMetric.compression_ratio).toFixed(1)}×`
@@ -213,13 +227,18 @@ function Dashboard({ connected }) {
         </div>
       </section>
 
-      {focusNode && (
+      {(codecPreviews || focusNode) && (
         <div className="dashboard__preview-strip">
           {['raw', 'reconstructed', 'heatmap'].map((side) => (
             <figure key={side} className="dashboard__preview-pane">
-              <figcaption>{side}</figcaption>
+              <figcaption>
+                {side}
+                {codecMetric?.psnr != null && side === 'reconstructed'
+                  ? ` · ${Number(codecMetric.psnr).toFixed(1)} dB`
+                  : ''}
+              </figcaption>
               <img
-                src={previewJpegUrl(focusNode, side, previewTick)}
+                src={codecPreviews?.[side] || previewJpegUrl(focusNode, side, previewTick)}
                 alt={`${side} preview`}
               />
             </figure>
@@ -289,7 +308,7 @@ function Dashboard({ connected }) {
         </div>
 
         <LinkBudgetPanel />
-        <CompressionWaterfall metric={latestMetric} />
+        <CompressionWaterfall metric={shownMetric} />
         <RLPolicyPanel />
 
         <div className="charts-section">
