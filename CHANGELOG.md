@@ -8,6 +8,8 @@ All notable changes to Lydlr are documented here.
 
 - Vision codec (`temporal_dct_rans`): temporal residual, 8×8 DCT, countable rANS bits. Image-only `lydlr` benches use it and beat intra JPEG at matched bpp (`scripts/prove_lydlr_beats_jpeg.py`).
 - Console **Beat JPEG** page ships the measured proof (`frontend/public/beat-jpeg-proof.json`). CI fails if that file drifts from a fresh run.
+- `GET /api/codec/frame/` encodes the next correlated-clip frame with the vision codec. The dashboard waterfall and previews use those countable bytes.
+- Host API defaults to localhost Mongo/Redis with short connect timeouts so a missing database does not hang the console.
 - Compression waterfall panel on Dashboard and Visual Monitoring.
 - Torch-free `bitrate_math` and `clip_stats` utilities with unit tests.
 - LYDT wire protocol and link-policy pytest coverage (ROS-free).
