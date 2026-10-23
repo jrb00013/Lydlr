@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StorageIcon from '@mui/icons-material/Storage';
+import { formatBytes } from '../utils/formatBytes';
 import './CompressionWaterfall.css';
 
 function CompressionWaterfall({ metric }) {
@@ -55,7 +56,7 @@ function CompressionWaterfall({ metric }) {
           <XAxis type="number" tick={{ fontSize: 11 }} />
           <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
           <Tooltip
-            formatter={(value) => [`${(value / 1024).toFixed(2)} KB`, 'Bytes']}
+            formatter={(value) => [formatBytes(value, 2), 'Bytes']}
             contentStyle={{
               background: 'rgba(10, 14, 22, 0.95)',
               border: '1px solid var(--border-subtle)',
@@ -80,7 +81,7 @@ function CompressionWaterfall({ metric }) {
                 <div key={mod} className="compression-waterfall__row">
                   <span className="compression-waterfall__mod">{mod}</span>
                   <span className="compression-waterfall__vals">
-                    {(inBytes / 1024).toFixed(1)} KB → {(outBytes / 1024).toFixed(1)} KB
+                    {formatBytes(inBytes)} → {formatBytes(outBytes)}
                     <span className="compression-waterfall__pct">
                       ({modSaved > 0 ? `-${Math.round((1 - modRatio) * 100)}%` : '0%'})
                     </span>
