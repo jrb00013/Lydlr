@@ -28,6 +28,7 @@ JPEG treats each frame independently and has no temporal memory. Correlated sens
 ```bash
 PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_beat_jpeg.py
 PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_lydlr_beats_jpeg.py
+PYTHONPATH=ros2/src/lydlr_ai python scripts/lydlr_encode.py --clip scripts/fixture_correlated_clip.npz
 PYTHONPATH=ros2/src/lydlr_ai python scripts/generate_correlated_clip.py   # regenerate fixture
 PYTHONPATH=ros2/src/lydlr_ai python scripts/bench_codecs.py --clip scripts/fixture_correlated_clip.npz --codecs jpeg,webp
 ```
