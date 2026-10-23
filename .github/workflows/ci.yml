@@ -41,7 +41,8 @@ jobs:
       - name: prove Lydlr vision codec beats intra JPEG
         run: |
           PYTHONPATH=ros2/src/lydlr_ai python scripts/prove_lydlr_beats_jpeg.py \
-            --fixture scripts/fixture_correlated_clip.npz --frames 8 --max-width 96
+            --fixture scripts/fixture_correlated_clip.npz --frames 8 --max-width 96 \
+            --check-published frontend/public/beat-jpeg-proof.json
 
       - name: bench_codecs smoke
         run: |

@@ -92,6 +92,19 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--max-width", type=int, default=96)
     parser.add_argument("--min-margin-db", type=float, default=1.0)
+    parser.add_argument(
+        "--publish",
+        type=Path,
+        default=None,
+        help="Also write the proof JSON here (shipped with the console)",
+    )
+    parser.add_argument(
+        "--check-published",
+        type=Path,
+        default=None,
+        help="Fail if this file's matched margin drifts more than --margin-tol dB",
+    )
+    parser.add_argument("--margin-tol", type=float, default=2.0)
     args = parser.parse_args()
 
     frames, source = _load(args.fixture, args.frames)
@@ -148,13 +161,31 @@ def main() -> int:
             default=None,
         ),
     }
-    out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(payload, indent=2) + "\n"
+    out.write_text(text, encoding="utf-8")
+    if args.publish:
+        args.publish.parent.mkdir(parents=True, exist_ok=True)
+        args.publish.write_text(text, encoding="utf-8")
+        print(f"published {args.publish}")
     print(
         f"wrote {out} success={payload['success']} "
         f"best_matched_margin_db={payload['best_matched_margin_db']}"
     )
     matched_wins = [w for w in wins if w["kind"] == "matched"]
-    return 0 if matched_wins else 1
+    if not matched_wins:
+        return 1
+    if args.check_published:
+        published = json.loads(args.check_published.read_text(encoding="utf-8"))
+        fresh = float(payload["best_matched_margin_db"])
+        shipped = float(published.get("best_matched_margin_db") or 0)
+        drift = abs(fresh - shipped)
+        print(f"published_margin={shipped:.3f} fresh={fresh:.3f} drift={drift:.3f}")
+        if drift > args.margin_tol:
+            print(f"published proof drifted more than {args.margin_tol} dB", file=sys.stderr)
+            return 1
+        if not published.get("success"):
+            return 1
+    return 0
 
 
 if __name__ == "__main__":

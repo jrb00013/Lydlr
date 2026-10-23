@@ -13,6 +13,7 @@ import HubIcon from '@mui/icons-material/Hub';
 import FolderIcon from '@mui/icons-material/Folder';
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -29,6 +30,7 @@ import DevicesView from './components/DevicesView';
 import WorkspaceView from './components/WorkspaceView';
 import VisualMonitoring from './components/VisualMonitoring';
 import NotFound from './components/NotFound';
+import ProofView from './components/ProofView';
 import NotificationContainer from './components/NotificationContainer';
 import ConfirmModal from './components/ConfirmModal';
 import { useNotification } from './hooks/useNotification';
@@ -43,6 +45,7 @@ const NAV_SECTIONS = [
     label: 'Operate',
     items: [
       { to: '/', label: 'Dashboard', icon: DashboardIcon, end: true },
+      { to: '/proof', label: 'Beat JPEG', icon: FactCheckIcon },
       { to: '/visual', label: 'Visual', icon: VisibilityIcon },
       { to: '/metrics', label: 'Metrics', icon: AnalyticsIcon },
     ],
@@ -67,6 +70,7 @@ const NAV_SECTIONS = [
 
 const TITLE_BY_PATH = {
   '/': 'Dashboard',
+  '/proof': 'Beat JPEG',
   '/devices': 'Devices',
   '/nodes': 'Nodes',
   '/workspace': 'Workspace',
@@ -208,6 +212,7 @@ function AppShell() {
             <main id="main-content" className="content page-enter" tabIndex={-1}>
               <Routes>
                 <Route path="/" element={<Dashboard connected={connected} />} />
+                <Route path="/proof" element={<ProofView />} />
                 <Route path="/nodes" element={<NodesView />} />
                 <Route path="/devices" element={<DevicesView />} />
                 <Route path="/workspace" element={<WorkspaceView />} />

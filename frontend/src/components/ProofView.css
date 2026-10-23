@@ -1,0 +1,73 @@
+.proof-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.proof-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 1.25rem 1.5rem;
+}
+
+.proof-hero__kicker {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #94a3b8);
+}
+
+.proof-hero__value {
+  margin: 0.35rem 0 0;
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 650;
+  color: var(--accent-bright, #1ab8a0);
+}
+
+.proof-hero__meta {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.proof-hero__meta dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.proof-hero__meta dd {
+  margin: 0.15rem 0 0;
+}
+
+.proof-table-wrap h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.proof-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.proof-table th,
+.proof-table td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+  font-size: 0.9rem;
+}
+
+.proof-view__error {
+  color: #f87171;
+}
+
+.proof-view__wait {
+  color: var(--text-muted, #94a3b8);
+}
