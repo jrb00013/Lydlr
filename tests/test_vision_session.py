@@ -16,7 +16,8 @@ def test_encode_frame_roundtrip_and_rate():
     np.testing.assert_array_equal(back, recon)
     assert stats["bytes_out"] == len(payload)
     assert stats["bytes_out"] < stats["bytes_in"]
-    assert stats["codec_path"] == "temporal_dct_rans_v2"
+    assert stats["codec_path"] == "temporal_dct_rans_v3"
+    assert stats["chroma"] == "4:2:0"
     assert stats["confidence"] > 0.0
     assert stats["compression_ratio"] > 1.0
 

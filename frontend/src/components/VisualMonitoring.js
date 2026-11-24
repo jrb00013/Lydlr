@@ -241,15 +241,19 @@ function VisualMonitoring() {
             </span>
           </div>
           <div className="live-strip__item">
-            <span className="live-strip__label">Quality</span>
+            <span className="live-strip__label">Confidence</span>
             <span
               className="live-strip__value"
               style={{
-                color: getQualityColor((selectedMetric?.quality_score || 0) * 100),
+                color: getQualityColor(
+                  ((selectedMetric?.confidence ?? selectedMetric?.quality_score) || 0) * 100
+                ),
               }}
             >
-              {selectedMetric?.quality_score != null
-                ? `${(selectedMetric.quality_score * 100).toFixed(1)}%`
+              {(selectedMetric?.confidence ?? selectedMetric?.quality_score) != null
+                ? `${(
+                    (selectedMetric?.confidence ?? selectedMetric?.quality_score) * 100
+                  ).toFixed(1)}%`
                 : '—'}
             </span>
           </div>

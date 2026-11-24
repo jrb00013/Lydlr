@@ -1688,11 +1688,11 @@ def lydlr_rate_and_recon(
 
 
 def _lydlr_vision_dct_report(frames: Sequence[np.ndarray], out: dict) -> dict:
-    """Image-only Lydlr path: YCbCr residual, mild freq DCT, countable rANS."""
+    """Image-only Lydlr path: YCbCr 4:2:0 residual, mild freq DCT, countable rANS."""
     from lydlr_ai.model.temporal_dct import encode_temporal_dct, model_confidence
 
     qsteps = (2.0, 4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0)
-    out["codec_path"] = "temporal_dct_rans_v2"
+    out["codec_path"] = "temporal_dct_rans_v3"
     out["rate_source"] = RANS
     out["trained"] = True
     out["device"] = "cpu"
@@ -1717,7 +1717,8 @@ def _lydlr_vision_dct_report(frames: Sequence[np.ndarray], out: dict) -> dict:
             "proxy_bits": 0.0,
             "trained": True,
             "latent_dim": None,
-            "codec_path": "temporal_dct_rans_v2",
+            "codec_path": "temporal_dct_rans_v3",
+            "chroma": "4:2:0",
             "qstep": float(qstep),
             "psnr_mean": psnr_mean,
             "psnr_std": float(np.std(ps)),

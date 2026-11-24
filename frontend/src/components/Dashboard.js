@@ -223,6 +223,16 @@ function Dashboard({ connected }) {
               </span>
               <span className="hero-stat__label">compression</span>
             </div>
+            <div className="hero-stat">
+              <span className="hero-stat__value">
+                {codecMetric?.confidence != null
+                  ? `${(Number(codecMetric.confidence) * 100).toFixed(0)}%`
+                  : codecMetric?.quality_score != null
+                    ? `${(Number(codecMetric.quality_score) * 100).toFixed(0)}%`
+                    : '—'}
+              </span>
+              <span className="hero-stat__label">model confidence</span>
+            </div>
           </div>
         </div>
       </section>
@@ -233,8 +243,11 @@ function Dashboard({ connected }) {
             <figure key={side} className="dashboard__preview-pane">
               <figcaption>
                 {side}
-                {codecMetric?.psnr != null && side === 'reconstructed'
+                {side === 'reconstructed' && codecMetric?.psnr != null
                   ? ` · ${Number(codecMetric.psnr).toFixed(1)} dB`
+                  : ''}
+                {side === 'reconstructed' && codecMetric?.confidence != null
+                  ? ` · conf ${(Number(codecMetric.confidence) * 100).toFixed(0)}%`
                   : ''}
               </figcaption>
               <img

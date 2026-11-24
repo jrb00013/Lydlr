@@ -6,6 +6,7 @@ All notable changes to Lydlr are documented here.
 
 ### Added
 
+- Vision codec v3 (`temporal_dct_rans_v3`): YCbCr 4:2:0 chroma + mild frequency-weighted DCT. Further rate drop vs v2; console shows **model confidence** next to compression.
 - Vision codec v2 (`temporal_dct_rans_v2`): YCbCr temporal residual, mild frequency-weighted 8×8 DCT, countable rANS. Emits `compression_ratio`, `zero_frac`, and `confidence` (predictor lock + PSNR). Console live session defaults to qstep=8.
 - Vision codec (`temporal_dct_rans`): temporal residual, 8×8 DCT, countable rANS bits. Image-only `lydlr` benches use it and beat intra JPEG at matched bpp (`scripts/prove_lydlr_beats_jpeg.py`).
 - Console **Beat JPEG** page ships the measured proof (`frontend/public/beat-jpeg-proof.json`). CI fails if that file drifts from a fresh run.
