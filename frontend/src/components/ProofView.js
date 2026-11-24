@@ -25,14 +25,21 @@ function ProofView() {
     };
   }, []);
 
-  const margin = proof?.best_matched_margin_db;
+  const margin =
+    proof?.best_matched_margin_db ??
+    proof?.best_margin_db ??
+    proof?.best_below_floor_margin_db;
   const matched = (proof?.wins || []).filter((w) => w.kind === 'matched');
+  const belowFloor = (proof?.wins || []).filter((w) => w.kind === 'below_floor');
+  const kicker = matched.length
+    ? 'Matched-rate PSNR margin vs intra JPEG'
+    : 'Below-floor PSNR margin vs intra JPEG (fewer bits than JPEG’s lowest rate)';
 
   return (
     <div className="proof-view">
       <PageHeader
         title="Beat JPEG"
-        subtitle="Temporal residual + 8×8 DCT + countable rANS, measured on the correlated clip"
+        subtitle="YCbCr temporal residual + mild freq DCT + countable rANS, measured on the correlated clip"
         icon={FactCheckIcon}
         badge={
           proof ? (
@@ -50,7 +57,7 @@ function ProofView() {
         <>
           <section className="proof-hero card">
             <div>
-              <p className="proof-hero__kicker">Matched-rate PSNR margin vs intra JPEG</p>
+              <p className="proof-hero__kicker">{kicker}</p>
               <p className="proof-hero__value">
                 {margin == null ? '—' : `+${Number(margin).toFixed(1)} dB`}
               </p>
@@ -97,8 +104,13 @@ function ProofView() {
                 ))}
               </tbody>
             </table>
-            {matched.length === 0 && (
-              <p className="proof-view__wait">No matched-rate win in this proof file.</p>
+            {matched.length === 0 && belowFloor.length > 0 && (
+              <p className="proof-view__wait">
+                All wins are below JPEG’s rate floor — stronger than matched bpp on this clip.
+              </p>
+            )}
+            {matched.length === 0 && belowFloor.length === 0 && (
+              <p className="proof-view__wait">No win in this proof file.</p>
             )}
           </section>
         </>

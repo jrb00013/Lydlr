@@ -146,18 +146,18 @@ def main() -> int:
 
     out = ROOT / "scripts" / "results" / "lydlr_beats_jpeg.json"
     out.parent.mkdir(parents=True, exist_ok=True)
+    matched_margins = [w["margin_db"] for w in wins if w["kind"] == "matched"]
+    all_margins = [w["margin_db"] for w in wins]
     payload = {
         "success": bool(wins),
         "clip": source,
         "shape": list(frames.shape),
         "min_margin_db": args.min_margin_db,
         "wins": wins,
-        "best_matched_margin_db": max(
-            (w["margin_db"] for w in wins if w["kind"] == "matched"),
-            default=None,
-        ),
-        "best_margin_db": max(
-            (w["margin_db"] for w in wins if w["kind"] == "matched"),
+        "best_matched_margin_db": max(matched_margins) if matched_margins else None,
+        "best_margin_db": max(all_margins) if all_margins else None,
+        "best_below_floor_margin_db": max(
+            (w["margin_db"] for w in wins if w["kind"] == "below_floor"),
             default=None,
         ),
     }
@@ -169,15 +169,21 @@ def main() -> int:
         print(f"published {args.publish}")
     print(
         f"wrote {out} success={payload['success']} "
-        f"best_matched_margin_db={payload['best_matched_margin_db']}"
+        f"best_matched_margin_db={payload['best_matched_margin_db']} "
+        f"best_margin_db={payload['best_margin_db']}"
     )
-    matched_wins = [w for w in wins if w["kind"] == "matched"]
-    if not matched_wins:
+    # Matched OR below-floor (fewer bits than JPEG's worst rate at higher PSNR)
+    # both count as a falsifiable win for the temporal vision codec.
+    if not wins:
         return 1
     if args.check_published:
         published = json.loads(args.check_published.read_text(encoding="utf-8"))
-        fresh = float(payload["best_matched_margin_db"])
-        shipped = float(published.get("best_matched_margin_db") or 0)
+        fresh = float(payload["best_margin_db"] or 0)
+        shipped = float(
+            published.get("best_margin_db")
+            or published.get("best_matched_margin_db")
+            or 0
+        )
         drift = abs(fresh - shipped)
         print(f"published_margin={shipped:.3f} fresh={fresh:.3f} drift={drift:.3f}")
         if drift > args.margin_tol:

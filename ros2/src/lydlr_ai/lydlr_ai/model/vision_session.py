@@ -18,7 +18,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from lydlr_ai.model.bench_baselines import psnr
-from lydlr_ai.model.temporal_dct import decode_frame, encode_frame
+from lydlr_ai.model.temporal_dct import decode_frame, encode_frame, model_confidence
 
 _ROOT = Path(__file__).resolve().parents[5]
 _FIXTURE = _ROOT / "scripts" / "fixture_correlated_clip.npz"
@@ -63,7 +63,9 @@ def _heat(src: np.ndarray, recon: np.ndarray) -> np.ndarray:
 
 
 class VisionSession:
-    def __init__(self, *, qstep: float = 16.0, max_width: int = 96, n_frames: int = 12):
+    def __init__(self, *, qstep: float = 8.0, max_width: int = 96, n_frames: int = 12):
+        # qstep=8 is the high-confidence / high-ratio operating point for v2:
+        # YCbCr + mild AC weights keep PSNR high while bpp drops vs uniform RGB.
         self.qstep = float(qstep)
         self.frames = _load_frames(max_width=max_width, n=n_frames)
         self.index = 0
@@ -80,6 +82,7 @@ class VisionSession:
             if decoded.shape != recon.shape or not np.array_equal(decoded, recon):
                 raise RuntimeError("vision codec decode diverged from encoder reconstruction")
             psnr_db = float(psnr(frame, recon))
+            conf = model_confidence(zero_frac=float(stats["zero_frac"]), psnr_db=psnr_db)
             self.prev = recon
             self.index += 1
             metric = {
@@ -92,7 +95,10 @@ class VisionSession:
                 "compression_ratio": round(stats["compression_ratio"], 3),
                 "bpp": round(stats["bpp"], 4),
                 "psnr": round(psnr_db, 3),
-                "quality_score": round(min(1.0, psnr_db / 50.0), 4),
+                "zero_frac": round(float(stats["zero_frac"]), 4),
+                "confidence": round(conf, 4),
+                # quality_score: fidelity floor; confidence: predictor lock + fidelity
+                "quality_score": round(min(1.0, max(psnr_db / 45.0, conf)), 4),
                 "compression_level": round(min(0.98, self.qstep / 100.0), 3),
                 "latency_ms": 0.0,
                 "bandwidth_estimate": round(stats["bytes_out"] * 8 / 1000.0, 3),

@@ -16,7 +16,9 @@ def test_encode_frame_roundtrip_and_rate():
     np.testing.assert_array_equal(back, recon)
     assert stats["bytes_out"] == len(payload)
     assert stats["bytes_out"] < stats["bytes_in"]
-    assert stats["codec_path"] == "temporal_dct_rans"
+    assert stats["codec_path"] == "temporal_dct_rans_v2"
+    assert stats["confidence"] > 0.0
+    assert stats["compression_ratio"] > 1.0
 
 
 def test_session_ticks_are_countable():
@@ -28,4 +30,6 @@ def test_session_ticks_are_countable():
     assert second["bytes_out"] < first["bytes_out"]
     assert second["compression_ratio"] > 1.0
     assert second["psnr"] > 30.0
+    assert second["confidence"] > 0.85
+    assert second["quality_score"] > 0.85
     assert second["modality_bytes_in"]["camera"] == second["bytes_in"]
