@@ -5,7 +5,7 @@
   <img src="docs/assets/lydlr-logo-banner.jpg" alt="Lydlr — AI | Compression | ROS2 | Edge" width="640" />
 </p>     -->
 
-<p align="center"><strong>AI · Compression · ROS2 · Edge</strong></p>
+<!--<p align="center"><strong>AI · Compression · ROS2 · Edge</strong></p> -->
 
 ## Installation and Setup
 
