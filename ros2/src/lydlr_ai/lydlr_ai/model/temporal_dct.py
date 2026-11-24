@@ -7,10 +7,11 @@
 Image-only clips have no LiDAR/IMU/audio, so the multimodal network cannot
 be the rate path. This coder is the Lydlr vision operating point: predict
 from the previous reconstruction, transform the residual in YCbCr, apply a
-mild frequency-weighted quantizer, and entropy-code the symbols. Rate is the
-length of the self-describing payload.
+mild frequency-weighted quantizer, subsample chroma 4:2:0, and entropy-code
+the symbols. Rate is the length of the self-describing payload.
 
-Version 2 (current encode): YCbCr residual + mild AC emphasis.
+Version 3 (current encode): YCbCr + mild AC + chroma 4:2:0.
+Version 2 payloads (YCbCr full-res) still decode.
 Version 1 payloads (RGB, uniform qstep) still decode.
 """
 
@@ -24,7 +25,8 @@ import numpy as np
 from lydlr_ai.model.entropy_coder import rans_decode, rans_encode
 
 MAGIC = b"LDCT"
-VERSION = 2
+VERSION = 3
+VERSION_YCBCR_FULL = 2
 VERSION_RGB_UNIFORM = 1
 _HEAD = struct.Struct("<4sBBfHHH")  # magic, ver, flags, qstep, n, h, w
 _BLOCK = 8
@@ -42,7 +44,7 @@ _MT = np.ascontiguousarray(_M.T)
 _FY = np.arange(8, dtype=np.float32)
 _FX, _FY = np.meshgrid(_FY, _FY)
 _FREQ_W = (1.0 + 0.08 * (_FX + _FY)).astype(np.float32)
-_CHROMA_Q = 1.15
+_CHROMA_Q = 1.2
 
 
 def _as_frames(frames: Sequence[np.ndarray]) -> List[np.ndarray]:
@@ -64,6 +66,15 @@ def _pad8(frame: np.ndarray) -> Tuple[np.ndarray, int, int]:
     return out, h, w
 
 
+def _pad8_plane(ch: np.ndarray) -> Tuple[np.ndarray, int, int]:
+    h, w = ch.shape
+    ph = (8 - h % 8) % 8
+    pw = (8 - w % 8) % 8
+    if ph == 0 and pw == 0:
+        return ch, h, w
+    return np.pad(ch, ((0, ph), (0, pw)), mode="edge"), h, w
+
+
 def _blocks(ch: np.ndarray) -> np.ndarray:
     h, w = ch.shape
     return (
@@ -82,21 +93,27 @@ def _unblocks(blocks: np.ndarray, h: int, w: int) -> np.ndarray:
     )
 
 
+def _dct_plane(ch: np.ndarray) -> np.ndarray:
+    b = _blocks(ch.astype(np.float32))
+    return _unblocks(_M @ b @ _MT, ch.shape[0], ch.shape[1])
+
+
+def _idct_plane(coef: np.ndarray) -> np.ndarray:
+    b = _blocks(coef.astype(np.float32))
+    return _unblocks(_MT @ b @ _M, coef.shape[0], coef.shape[1])
+
+
 def _dct_image(img: np.ndarray) -> np.ndarray:
     out = np.empty_like(img, dtype=np.float32)
     for c in range(3):
-        b = _blocks(img[:, :, c])
-        d = _M @ b @ _MT
-        out[:, :, c] = _unblocks(d, img.shape[0], img.shape[1])
+        out[:, :, c] = _dct_plane(img[:, :, c])
     return out
 
 
 def _idct_image(coef: np.ndarray) -> np.ndarray:
     out = np.empty_like(coef, dtype=np.float32)
     for c in range(3):
-        b = _blocks(coef[:, :, c])
-        d = _MT @ b @ _M
-        out[:, :, c] = _unblocks(d, coef.shape[0], coef.shape[1])
+        out[:, :, c] = _idct_plane(coef[:, :, c])
     return out
 
 
@@ -119,12 +136,41 @@ def _ycbcr_to_rgb(ycbcr: np.ndarray) -> np.ndarray:
     return np.stack([r, g, b], axis=2)
 
 
-def _quant_volume(h: int, w: int, qstep: float) -> np.ndarray:
-    """Tile mild frequency weights; chroma planes slightly coarser."""
+def _downsample2(ch: np.ndarray) -> np.ndarray:
+    h, w = ch.shape
+    h2, w2 = h - (h % 2), w - (w % 2)
+    return ch[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).mean(axis=(1, 3)).astype(np.float32)
+
+
+def _upsample2(ch: np.ndarray, h: int, w: int) -> np.ndarray:
+    up = np.repeat(np.repeat(ch, 2, axis=0), 2, axis=1)
+    if up.shape[0] < h or up.shape[1] < w:
+        up = np.pad(up, ((0, max(0, h - up.shape[0])), (0, max(0, w - up.shape[1]))), mode="edge")
+    return up[:h, :w].astype(np.float32)
+
+
+def _quant_plane(h: int, w: int, qstep: float, scale: float = 1.0) -> np.ndarray:
     nby, nbx = h // 8, w // 8
-    luma = np.tile(_FREQ_W * float(qstep), (nby, nbx))
-    chroma = luma * _CHROMA_Q
-    return np.stack([luma, chroma, chroma], axis=2).astype(np.float32)
+    return np.tile(_FREQ_W * float(qstep) * float(scale), (nby, nbx)).astype(np.float32)
+
+
+def _quant_volume(h: int, w: int, qstep: float) -> np.ndarray:
+    """Full-res YCbCr quant volume (v2 path)."""
+    luma = _quant_plane(h, w, qstep, 1.0)
+    chroma = _quant_plane(h, w, qstep, _CHROMA_Q)
+    return np.stack([luma, chroma, chroma], axis=2)
+
+
+def _chroma_padded_shape(h: int, w: int) -> Tuple[int, int]:
+    ch, cw = h // 2, w // 2
+    ph = ch + ((8 - ch % 8) % 8)
+    pw = cw + ((8 - cw % 8) % 8)
+    return ph, pw
+
+
+def _syms_per_frame_420(h: int, w: int) -> int:
+    ph, pw = _chroma_padded_shape(h, w)
+    return int(h * w + 2 * ph * pw)
 
 
 def _pmf_u16(symbols: np.ndarray) -> np.ndarray:
@@ -177,6 +223,102 @@ def _confidence_from_symbols(symbols: np.ndarray) -> Tuple[float, float]:
     return zero_frac, model_confidence(zero_frac=zero_frac)
 
 
+def _encode_residual_420(
+    residual: np.ndarray, qstep: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Quantize a YCbCr residual with 4:2:0 chroma. Returns symbols, recon residual."""
+    h, w = residual.shape[:2]
+    qy_map = _quant_plane(h, w, qstep, 1.0)
+    qy = np.clip(np.rint(_dct_plane(residual[:, :, 0]) / qy_map), -127, 127).astype(np.int16)
+    y_rec = _idct_plane(qy.astype(np.float32) * qy_map)
+
+    cb_ds = _downsample2(residual[:, :, 1])
+    cr_ds = _downsample2(residual[:, :, 2])
+    cb_p, ch, cw = _pad8_plane(cb_ds)
+    cr_p, _, _ = _pad8_plane(cr_ds)
+    qc_map = _quant_plane(cb_p.shape[0], cb_p.shape[1], qstep, _CHROMA_Q)
+    qcb = np.clip(np.rint(_dct_plane(cb_p) / qc_map), -127, 127).astype(np.int16)
+    qcr = np.clip(np.rint(_dct_plane(cr_p) / qc_map), -127, 127).astype(np.int16)
+    cb_rec = _idct_plane(qcb.astype(np.float32) * qc_map)[:ch, :cw]
+    cr_rec = _idct_plane(qcr.astype(np.float32) * qc_map)[:ch, :cw]
+
+    symbols = np.concatenate(
+        [
+            (qy + 127).astype(np.uint8).ravel(),
+            (qcb + 127).astype(np.uint8).ravel(),
+            (qcr + 127).astype(np.uint8).ravel(),
+        ]
+    )
+    recon = np.empty_like(residual)
+    recon[:, :, 0] = y_rec
+    recon[:, :, 1] = _upsample2(cb_rec, h, w)
+    recon[:, :, 2] = _upsample2(cr_rec, h, w)
+    return symbols, recon
+
+
+def _decode_residual_420(symbols: np.ndarray, h: int, w: int, qstep: float) -> np.ndarray:
+    ph, pw = _chroma_padded_shape(h, w)
+    n_y = h * w
+    n_c = ph * pw
+    expected = n_y + 2 * n_c
+    if int(symbols.size) != expected:
+        raise ValueError(f"bad 420 symbol count {symbols.size} != {expected}")
+    qy = symbols[:n_y].reshape(h, w).astype(np.int16) - 127
+    qcb = symbols[n_y : n_y + n_c].reshape(ph, pw).astype(np.int16) - 127
+    qcr = symbols[n_y + n_c :].reshape(ph, pw).astype(np.int16) - 127
+    qy_map = _quant_plane(h, w, qstep, 1.0)
+    qc_map = _quant_plane(ph, pw, qstep, _CHROMA_Q)
+    ch, cw = h // 2, w // 2
+    y_rec = _idct_plane(qy.astype(np.float32) * qy_map)
+    cb_rec = _idct_plane(qcb.astype(np.float32) * qc_map)[:ch, :cw]
+    cr_rec = _idct_plane(qcr.astype(np.float32) * qc_map)[:ch, :cw]
+    recon = np.empty((h, w, 3), dtype=np.float32)
+    recon[:, :, 0] = y_rec
+    recon[:, :, 1] = _upsample2(cb_rec, h, w)
+    recon[:, :, 2] = _upsample2(cr_rec, h, w)
+    return recon
+
+
+def _stats_common(
+    *,
+    payload: bytes,
+    n_frames: int,
+    orig_h: int,
+    orig_w: int,
+    qstep: float,
+    symbols: np.ndarray,
+    keyframe: Optional[bool] = None,
+) -> dict:
+    pixels = orig_h * orig_w
+    total_bits = len(payload) * 8
+    raw_bytes = int(n_frames * orig_h * orig_w * 3)
+    zero_frac, conf = _confidence_from_symbols(symbols)
+    out = {
+        "bpp": float(total_bits / max(n_frames * pixels, 1)),
+        "bits_per_frame": float(total_bits / max(n_frames, 1)),
+        "total_bits": float(total_bits),
+        "payload_bytes": len(payload),
+        "bytes_in": raw_bytes if keyframe is None else int(orig_h * orig_w * 3),
+        "bytes_out": len(payload),
+        "compression_ratio": float(raw_bytes if keyframe is None else orig_h * orig_w * 3)
+        / float(max(len(payload), 1)),
+        "n_frames": n_frames,
+        "qstep": qstep,
+        "zero_frac": zero_frac,
+        "confidence": conf,
+        "rate_source": "rans_bits",
+        "codec_path": "temporal_dct_rans_v3",
+        "color_space": "ycbcr",
+        "chroma": "4:2:0",
+        "freq_weighted": True,
+    }
+    if keyframe is not None:
+        out["keyframe"] = keyframe
+        out["bytes_in"] = int(orig_h * orig_w * 3)
+        out["compression_ratio"] = float(out["bytes_in"]) / float(max(len(payload), 1))
+    return out
+
+
 def encode_temporal_dct(
     frames: Sequence[np.ndarray],
     *,
@@ -191,12 +333,8 @@ def encode_temporal_dct(
         raise ValueError("qstep must be positive")
 
     orig_h, orig_w = flist[0].shape[:2]
-    padded = []
-    for f in flist:
-        p, _, _ = _pad8(np.asarray(f, dtype=np.uint8))
-        padded.append(p)
+    padded = [_pad8(np.asarray(f, dtype=np.uint8))[0] for f in flist]
     H, W = padded[0].shape[:2]
-    Q = _quant_volume(H, W, qstep)
 
     prev = None
     recons_full: List[np.ndarray] = []
@@ -204,42 +342,26 @@ def encode_temporal_dct(
     for frame in padded:
         x = _rgb_to_ycbcr(frame)
         pred = prev if prev is not None else np.full_like(x, 128.0)
-        coef = _dct_image(x - pred)
-        q = np.clip(np.rint(coef / Q), -127, 127).astype(np.int16)
-        sym_chunks.append((q + 127).astype(np.uint8))
-        recon_yc = pred + _idct_image(q.astype(np.float32) * Q)
+        symbols, resid_rec = _encode_residual_420(x - pred, qstep)
+        sym_chunks.append(symbols)
+        recon_yc = pred + resid_rec
         prev = recon_yc
         recons_full.append(np.clip(_ycbcr_to_rgb(recon_yc), 0, 255))
 
-    symbols = np.concatenate([s.reshape(-1) for s in sym_chunks]).astype(np.uint8)
+    symbols = np.concatenate(sym_chunks).astype(np.uint8)
     u16 = _pmf_u16(symbols)
-    pmf = _pmf_from_u16(u16)
-    coded = rans_encode(symbols, pmf)
+    coded = rans_encode(symbols, _pmf_from_u16(u16))
     head = _HEAD.pack(MAGIC, VERSION, 0, qstep, len(flist), H, W)
     payload = head + u16.tobytes() + coded
-
     recons = [r[:orig_h, :orig_w].astype(np.uint8) for r in recons_full]
-    pixels = orig_h * orig_w
-    total_bits = len(payload) * 8
-    raw_bytes = int(len(flist) * orig_h * orig_w * 3)
-    zero_frac, conf = _confidence_from_symbols(symbols)
-    stats = {
-        "bpp": float(total_bits / (len(flist) * pixels)),
-        "bits_per_frame": float(total_bits / len(flist)),
-        "total_bits": float(total_bits),
-        "payload_bytes": len(payload),
-        "bytes_in": raw_bytes,
-        "bytes_out": len(payload),
-        "compression_ratio": float(raw_bytes) / float(max(len(payload), 1)),
-        "n_frames": len(flist),
-        "qstep": qstep,
-        "zero_frac": zero_frac,
-        "confidence": conf,
-        "rate_source": "rans_bits",
-        "codec_path": "temporal_dct_rans_v2",
-        "color_space": "ycbcr",
-        "freq_weighted": True,
-    }
+    stats = _stats_common(
+        payload=payload,
+        n_frames=len(flist),
+        orig_h=orig_h,
+        orig_w=orig_w,
+        qstep=qstep,
+        symbols=symbols,
+    )
     return payload, recons, stats
 
 
@@ -261,7 +383,6 @@ def encode_frame(
     src = np.asarray(frame, dtype=np.uint8)
     padded, orig_h, orig_w = _pad8(src)
     H, W = padded.shape[:2]
-    Q = _quant_volume(H, W, qstep)
     x = _rgb_to_ycbcr(padded)
     if prev is None:
         pred = np.full(x.shape, 128.0, dtype=np.float32)
@@ -271,56 +392,67 @@ def encode_frame(
             pred = np.full(x.shape, 128.0, dtype=np.float32)
         else:
             pred = _rgb_to_ycbcr(prev_p)
-    coef = _dct_image(x - pred)
-    q = np.clip(np.rint(coef / Q), -127, 127).astype(np.int16)
-    symbols = (q + 127).astype(np.uint8).reshape(-1)
+    symbols, resid_rec = _encode_residual_420(x - pred, qstep)
     u16 = _pmf_u16(symbols)
-    pmf = _pmf_from_u16(u16)
-    coded = rans_encode(symbols, pmf)
+    coded = rans_encode(symbols, _pmf_from_u16(u16))
     head = _HEAD.pack(MAGIC, VERSION, 0, qstep, 1, H, W)
     payload = head + u16.tobytes() + coded
-    recon_yc = pred + _idct_image(q.astype(np.float32) * Q)
+    recon_yc = pred + resid_rec
     recon = np.clip(_ycbcr_to_rgb(recon_yc), 0, 255)[:orig_h, :orig_w].astype(np.uint8)
-    raw_bytes = int(src.size)
-    zero_frac, conf = _confidence_from_symbols(symbols)
-    stats = {
-        "bpp": float(len(payload) * 8 / max(orig_h * orig_w, 1)),
-        "bytes_in": raw_bytes,
-        "bytes_out": len(payload),
-        "compression_ratio": float(raw_bytes) / float(max(len(payload), 1)),
-        "qstep": qstep,
-        "zero_frac": zero_frac,
-        "confidence": conf,
-        "rate_source": "rans_bits",
-        "codec_path": "temporal_dct_rans_v2",
-        "color_space": "ycbcr",
-        "freq_weighted": True,
-        "keyframe": prev is None,
-    }
+    stats = _stats_common(
+        payload=payload,
+        n_frames=1,
+        orig_h=orig_h,
+        orig_w=orig_w,
+        qstep=qstep,
+        symbols=symbols,
+        keyframe=prev is None,
+    )
     return payload, recon, stats
 
 
-def _decode_symbols_to_frames(
-    symbols: np.ndarray,
-    *,
-    n: int,
-    h: int,
-    w: int,
-    qstep: float,
-    version: int,
-) -> List[np.ndarray]:
+def _pred_ycbcr(prev: np.ndarray | None, h: int, w: int) -> np.ndarray:
+    if prev is None:
+        return np.full((h, w, 3), 128.0, dtype=np.float32)
+    prev_p, _, _ = _pad8(np.asarray(prev, dtype=np.uint8))
+    if prev_p.shape != (h, w, 3):
+        return np.full((h, w, 3), 128.0, dtype=np.float32)
+    return _rgb_to_ycbcr(prev_p)
+
+
+def _decode_v3_frames(symbols: np.ndarray, n: int, h: int, w: int, qstep: float) -> List[np.ndarray]:
+    per = _syms_per_frame_420(h, w)
+    if int(symbols.size) != n * per:
+        raise ValueError(f"v3 symbol count {symbols.size} != {n * per}")
+    prev = None
+    recons: List[np.ndarray] = []
+    for i in range(n):
+        chunk = symbols[i * per : (i + 1) * per]
+        pred = prev if prev is not None else np.full((h, w, 3), 128.0, dtype=np.float32)
+        resid = _decode_residual_420(chunk, h, w, qstep)
+        recon_yc = pred + resid
+        prev = recon_yc
+        recons.append(np.clip(_ycbcr_to_rgb(recon_yc), 0, 255).astype(np.uint8))
+    return recons
+
+
+def _decode_v2_frames(symbols: np.ndarray, n: int, h: int, w: int, qstep: float) -> List[np.ndarray]:
+    q_frames = symbols.reshape(n, h, w, 3).astype(np.int16) - 127
+    Q = _quant_volume(h, w, float(qstep))
+    prev = None
+    recons: List[np.ndarray] = []
+    for i in range(n):
+        pred = prev if prev is not None else np.full((h, w, 3), 128.0, dtype=np.float32)
+        recon_yc = pred + _idct_image(q_frames[i].astype(np.float32) * Q)
+        prev = recon_yc
+        recons.append(np.clip(_ycbcr_to_rgb(recon_yc), 0, 255).astype(np.uint8))
+    return recons
+
+
+def _decode_v1_frames(symbols: np.ndarray, n: int, h: int, w: int, qstep: float) -> List[np.ndarray]:
     q_frames = symbols.reshape(n, h, w, 3).astype(np.int16) - 127
     prev = None
     recons: List[np.ndarray] = []
-    if int(version) >= VERSION:
-        Q = _quant_volume(h, w, float(qstep))
-        for i in range(n):
-            pred = prev if prev is not None else np.full((h, w, 3), 128.0, dtype=np.float32)
-            recon_yc = pred + _idct_image(q_frames[i].astype(np.float32) * Q)
-            prev = recon_yc
-            recons.append(np.clip(_ycbcr_to_rgb(recon_yc), 0, 255).astype(np.uint8))
-        return recons
-    # v1: RGB residual, uniform qstep
     for i in range(n):
         pred = prev if prev is not None else np.full((h, w, 3), 128.0, dtype=np.float32)
         recon = np.clip(pred + _idct_image(q_frames[i].astype(np.float32) * float(qstep)), 0, 255)
@@ -336,34 +468,38 @@ def decode_frame(payload: bytes, prev: np.ndarray | None = None) -> np.ndarray:
     magic, ver, _flags, qstep, n, h, w = _HEAD.unpack_from(payload, 0)
     if magic != MAGIC or int(n) != 1:
         raise ValueError("decode_frame expects a one-frame LDCT payload")
-    if int(ver) not in (VERSION_RGB_UNIFORM, VERSION):
+    ver = int(ver)
+    if ver not in (VERSION_RGB_UNIFORM, VERSION_YCBCR_FULL, VERSION):
         raise ValueError(f"unsupported LDCT version {ver}")
     off = _HEAD.size
     u16 = np.frombuffer(payload[off : off + 512], dtype="<u2").copy()
-    symbols = rans_decode(payload[off + 512 :], int(h) * int(w) * 3, _pmf_from_u16(u16))
-    q = symbols.reshape(int(h), int(w), 3).astype(np.int16) - 127
-    if int(ver) >= VERSION:
+    if ver == VERSION:
+        n_sym = _syms_per_frame_420(int(h), int(w))
+    else:
+        n_sym = int(h) * int(w) * 3
+    symbols = rans_decode(payload[off + 512 :], n_sym, _pmf_from_u16(u16))
+    if ver == VERSION:
+        pred = _pred_ycbcr(prev, int(h), int(w))
+        resid = _decode_residual_420(symbols, int(h), int(w), float(qstep))
+        return np.clip(_ycbcr_to_rgb(pred + resid), 0, 255).astype(np.uint8)
+    if ver == VERSION_YCBCR_FULL:
+        q = symbols.reshape(int(h), int(w), 3).astype(np.int16) - 127
         Q = _quant_volume(int(h), int(w), float(qstep))
-        if prev is None:
-            pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
-        else:
-            prev_p, _, _ = _pad8(np.asarray(prev, dtype=np.uint8))
-            if prev_p.shape != (int(h), int(w), 3):
-                pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
-            else:
-                pred = _rgb_to_ycbcr(prev_p)
-        recon_yc = pred + _idct_image(q.astype(np.float32) * Q)
-        return np.clip(_ycbcr_to_rgb(recon_yc), 0, 255).astype(np.uint8)
+        pred = _pred_ycbcr(prev, int(h), int(w))
+        return np.clip(_ycbcr_to_rgb(pred + _idct_image(q.astype(np.float32) * Q)), 0, 255).astype(
+            np.uint8
+        )
+    q = symbols.reshape(int(h), int(w), 3).astype(np.int16) - 127
     if prev is None:
         pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
     else:
         prev_p, _, _ = _pad8(np.asarray(prev, dtype=np.uint8))
-        if prev_p.shape != (int(h), int(w), 3):
-            pred = np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
-        else:
-            pred = prev_p.astype(np.float32)
-    recon = np.clip(pred + _idct_image(q.astype(np.float32) * float(qstep)), 0, 255)
-    return recon.astype(np.uint8)
+        pred = (
+            prev_p.astype(np.float32)
+            if prev_p.shape == (int(h), int(w), 3)
+            else np.full((int(h), int(w), 3), 128.0, dtype=np.float32)
+        )
+    return np.clip(pred + _idct_image(q.astype(np.float32) * float(qstep)), 0, 255).astype(np.uint8)
 
 
 def decode_temporal_dct(payload: bytes) -> List[np.ndarray]:
@@ -373,17 +509,23 @@ def decode_temporal_dct(payload: bytes) -> List[np.ndarray]:
     magic, ver, _flags, qstep, n, h, w = _HEAD.unpack_from(payload, 0)
     if magic != MAGIC:
         raise ValueError(f"bad LDCT magic {magic!r}")
-    if int(ver) not in (VERSION_RGB_UNIFORM, VERSION):
+    ver = int(ver)
+    if ver not in (VERSION_RGB_UNIFORM, VERSION_YCBCR_FULL, VERSION):
         raise ValueError(f"unsupported LDCT version {ver}")
     off = _HEAD.size
     u16 = np.frombuffer(payload[off : off + 512], dtype="<u2").copy()
     off += 512
     pmf = _pmf_from_u16(u16)
-    n_sym = int(n) * int(h) * int(w) * 3
+    if ver == VERSION:
+        n_sym = int(n) * _syms_per_frame_420(int(h), int(w))
+    else:
+        n_sym = int(n) * int(h) * int(w) * 3
     symbols = rans_decode(payload[off:], n_sym, pmf)
-    return _decode_symbols_to_frames(
-        symbols, n=int(n), h=int(h), w=int(w), qstep=float(qstep), version=int(ver)
-    )
+    if ver == VERSION:
+        return _decode_v3_frames(symbols, int(n), int(h), int(w), float(qstep))
+    if ver == VERSION_YCBCR_FULL:
+        return _decode_v2_frames(symbols, int(n), int(h), int(w), float(qstep))
+    return _decode_v1_frames(symbols, int(n), int(h), int(w), float(qstep))
 
 
 def sweep_temporal_dct(
@@ -393,7 +535,7 @@ def sweep_temporal_dct(
     """Operating points with countable bpp and reconstruction arrays.
 
     Includes fine qsteps (2–3) so matched-bpp JPEG comparisons remain possible
-    after the v2 rate drop, plus coarse points for below-floor wins.
+    after the v3 rate drop, plus coarse points for below-floor wins.
     """
     points = []
     for q in qsteps:

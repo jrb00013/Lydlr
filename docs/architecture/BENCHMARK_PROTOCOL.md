@@ -31,7 +31,7 @@ Lydlr’s falsifiable claim is on **temporal residual coding**—predicting from
 Two checked paths:
 
 1. **Residual JPEG** (`prove_beat_jpeg.py`) — JPEG-coded frame differences vs intra JPEG.
-2. **Lydlr vision codec v2** (`prove_lydlr_beats_jpeg.py`) — previous-reconstruction prediction in YCbCr, mild frequency-weighted 8×8 DCT, deadzone quant, rANS. Payload bytes (header included) are the rate. Stats include `compression_ratio`, `zero_frac`, and `confidence` (predictor lock + PSNR). No neural checkpoint. Image-only `bench_codecs.py --codecs lydlr` uses this path. The 4-input network remains the path when LiDAR/IMU/audio side inputs are present. Wins may be **matched** (same bpp band as JPEG) or **below_floor** (fewer bits than JPEG’s lowest measured rate at higher PSNR).
+2. **Lydlr vision codec v3** (`prove_lydlr_beats_jpeg.py`) — previous-reconstruction prediction in YCbCr with **4:2:0 chroma**, mild frequency-weighted 8×8 DCT, deadzone quant, rANS. Payload bytes (header included) are the rate. Stats include `compression_ratio`, `zero_frac`, and `confidence` (predictor lock + PSNR). No neural checkpoint. Image-only `bench_codecs.py --codecs lydlr` uses this path. The 4-input network remains the path when LiDAR/IMU/audio side inputs are present. Wins may be **matched** (same bpp band as JPEG) or **below_floor** (fewer bits than JPEG’s lowest measured rate at higher PSNR). v1/v2 payloads still decode.
 
 Synthetic data is useful for regression tests; beat-JPEG conclusions for a release use `scripts/fixture_correlated_clip.npz`.
 

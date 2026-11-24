@@ -19,7 +19,8 @@ def test_roundtrip_matches_encoder_recon():
     payload, recons, stats = encode_temporal_dct(frames, qstep=12.0)
     back = decode_temporal_dct(payload)
     assert stats["rate_source"] == "rans_bits"
-    assert stats["codec_path"] == "temporal_dct_rans_v2"
+    assert stats["codec_path"] == "temporal_dct_rans_v3"
+    assert stats["chroma"] == "4:2:0"
     assert stats["payload_bytes"] == len(payload)
     assert stats["bpp"] > 0
     assert stats["compression_ratio"] > 1.0
@@ -38,8 +39,8 @@ def test_coarser_qstep_uses_fewer_bits():
     assert coarse < fine
 
 
-def test_ycbcr_v2_beats_uniform_rgb_rate_at_similar_psnr():
-    """v2 must spend fewer bits than a uniform-qstep RGB residual at similar PSNR."""
+def test_chroma420_v3_beats_uniform_rgb_rate():
+    """v3 must spend fewer bits than a uniform-qstep RGB residual."""
     from lydlr_ai.model import temporal_dct as td
 
     frames = synthetic_correlated_clip(n=6, h=48, w=64, seed=7)

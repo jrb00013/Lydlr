@@ -39,7 +39,7 @@ function ProofView() {
     <div className="proof-view">
       <PageHeader
         title="Beat JPEG"
-        subtitle="YCbCr temporal residual + mild freq DCT + countable rANS, measured on the correlated clip"
+        subtitle="YCbCr 4:2:0 temporal residual + mild freq DCT + countable rANS, measured on the correlated clip"
         icon={FactCheckIcon}
         badge={
           proof ? (
