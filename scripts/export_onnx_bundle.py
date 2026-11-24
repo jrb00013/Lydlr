@@ -191,7 +191,7 @@ def main():
         "latent_dim": latent_dim,
         "codebook_levels": 256,
         "fixed_length_bits_per_sample": fixed_bits,
-        "true_rate_note": "Wire claim = packed quant_indices bytes×8 until ANS lands",
+        "true_rate_note": "Wire claim = rate_report true_rate_bits (rANS preferred; fixed-length fallback)",
         "files": {
             "onnx": onnx_path.name,
             "weights_source": weights.name,

@@ -24,7 +24,7 @@ Related design: [NEURAL_COMPRESSION_RD_PLAN.md](../architecture/NEURAL_COMPRESSI
 
 **Decision rule used during the run:** continue while R falls and Drec stays flat; stop + applied-math fix if R↓ with Drec/PSNR blow-up or KL uncapped spikes. KL tempering (`RD_STABILITY_APPLIED_MATH.md`) prevented the earlier D~6000 failure mode.
 
-**Watch next:** entropy `R → ~0` with flat Drec means the *learned rate proxy* collapsed (overconfident symbol model), not necessarily a true near-zero bitstream. **Done for demo path:** separate **proxy R** from **countable index bits** (`TRUE_RATE_APPLIED_MATH.md`, eval `mean_true_rate_bits`). ANS still future. Jetson steps: [JETSON_ORIN_DEMO.md](JETSON_ORIN_DEMO.md).
+**Watch next:** entropy `R → ~0` with flat Drec means the *learned rate proxy* collapsed (overconfident symbol model), not necessarily a true near-zero bitstream. **Done for demo path:** separate **proxy R** from **countable index bits** (`TRUE_RATE_APPLIED_MATH.md`, eval `mean_true_rate_bits`). **rANS packing** is the default countable path (`rate_source=rans_bits`); fixed-length remains the fallback. Jetson steps: [JETSON_ORIN_DEMO.md](JETSON_ORIN_DEMO.md).
 
 ---
 
@@ -95,7 +95,7 @@ python3 scripts/eval_compression_rd.py --frames 32 \
 
 ## Next session
 
-1. ~~True rate accounting~~ — done (`TRUE_RATE_APPLIED_MATH.md`, eval `mean_true_rate_bits`). ANS still open.  
+1. ~~True rate accounting~~ — done (`TRUE_RATE_APPLIED_MATH.md`, eval `mean_true_rate_bits`, `rate_source=rans_bits`).
 2. Collect real sequences and retrain.  
 3. ~~Deploy final `.pth` into `models/<node_id>/`~~ — `scripts/install_edge_checkpoint.py`; Orin path in [JETSON_ORIN_DEMO.md](JETSON_ORIN_DEMO.md).  
 4. On Orin: rsync bundle, optional TRT fp16, live camera demo.

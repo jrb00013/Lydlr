@@ -15,7 +15,7 @@ Related: [TRUE_RATE_APPLIED_MATH.md](../architecture/TRUE_RATE_APPLIED_MATH.md) 
 | Edge PyTorch | ModelRegistry under `models/<node_id>/` | Hot-swap without rebuild |
 | ONNX bundle | `deploy_bundles/jetson_v2_full/` | Cross-device inference |
 | TensorRT (optional) | `multimodal_compressor.trt` | Orin latency |
-| Rate | packed `quant_indices` | **R_true ≈ 512 bits/sample** (L=256, d=64) until ANS |
+| Rate | rANS / packed `quant_indices` | **R_true** from `rate_report` (`rans_bits` preferred; fixed-length ceiling 512 for L=256,d=64) |
 
 Do **not** quote train `Rproxy≈0.16` as the radio bitrate.
 
@@ -151,7 +151,7 @@ python3 scripts/eval_compression_rd.py ... --edge-fast --skip-recon --fp16
 
 - [ ] Checkpoint loads (`strict=False` OK; log missing/unexpected counts)
 - [ ] One forward at 480×640 (or document resize) with camera/LiDAR/IMU/audio stubs
-- [ ] Log **proxy_rate_bits** vs **true_rate_bits** (expect proxy ≪ true until ANS)
+- [ ] Log **proxy_rate_bits** vs **true_rate_bits** (expect proxy ≤ true; `rate_source=rans_bits`)
 - [ ] Show reconstructed preview / quality score
 - [ ] Optional: TRT fp16 latency vs PyTorch
 

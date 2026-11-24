@@ -63,20 +63,48 @@ def _heat(src: np.ndarray, recon: np.ndarray) -> np.ndarray:
 
 
 class VisionSession:
-    def __init__(self, *, qstep: float = 8.0, max_width: int = 96, n_frames: int = 12):
-        # qstep=8 is the high-confidence / high-ratio operating point for v2:
-        # YCbCr + mild AC weights keep PSNR high while bpp drops vs uniform RGB.
+    def __init__(
+        self,
+        *,
+        qstep: float = 8.0,
+        max_width: int = 96,
+        n_frames: int = 12,
+        adaptive: bool = True,
+        qstep_min: float = 4.0,
+        qstep_max: float = 24.0,
+    ):
+        # Base qstep=8 is the high-confidence / high-ratio operating point for v3
+        # (YCbCr 4:2:0 + mild AC). When adaptive, locked predictors coarsen qstep
+        # to spend fewer bits; low confidence fine-tunes back toward fidelity.
+        self.base_qstep = float(qstep)
         self.qstep = float(qstep)
+        self.adaptive = bool(adaptive)
+        self.qstep_min = float(qstep_min)
+        self.qstep_max = float(qstep_max)
         self.frames = _load_frames(max_width=max_width, n=n_frames)
         self.index = 0
         self.prev: Optional[np.ndarray] = None
         self._lock = threading.Lock()
+
+    def _adapt_qstep(self, conf: float) -> None:
+        if not self.adaptive:
+            return
+        # High lock → spend fewer bits; low lock → protect fidelity.
+        if conf >= 0.94:
+            self.qstep = min(self.qstep_max, self.qstep * 1.08)
+        elif conf <= 0.80:
+            self.qstep = max(self.qstep_min, self.qstep * 0.92)
+        else:
+            # Drift gently back toward the nominal operating point.
+            self.qstep = 0.85 * self.qstep + 0.15 * self.base_qstep
+        self.qstep = float(np.clip(self.qstep, self.qstep_min, self.qstep_max))
 
     def tick(self) -> Dict:
         with self._lock:
             frame = self.frames[self.index % len(self.frames)]
             if self.index % len(self.frames) == 0:
                 self.prev = None
+                self.qstep = self.base_qstep
             payload, recon, stats = encode_frame(frame, self.prev, qstep=self.qstep)
             decoded = decode_frame(payload, self.prev)
             if decoded.shape != recon.shape or not np.array_equal(decoded, recon):
@@ -85,6 +113,8 @@ class VisionSession:
             conf = model_confidence(zero_frac=float(stats["zero_frac"]), psnr_db=psnr_db)
             self.prev = recon
             self.index += 1
+            used_q = float(self.qstep)
+            self._adapt_qstep(conf)
             metric = {
                 "node_id": "vision_codec",
                 "vertical": "drone",
@@ -99,7 +129,9 @@ class VisionSession:
                 "confidence": round(conf, 4),
                 # quality_score: fidelity floor; confidence: predictor lock + fidelity
                 "quality_score": round(min(1.0, max(psnr_db / 45.0, conf)), 4),
-                "compression_level": round(min(0.98, self.qstep / 100.0), 3),
+                "compression_level": round(min(0.98, used_q / 100.0), 3),
+                "qstep": round(used_q, 3),
+                "adaptive_qstep": self.adaptive,
                 "latency_ms": 0.0,
                 "bandwidth_estimate": round(stats["bytes_out"] * 8 / 1000.0, 3),
                 "keyframe": stats["keyframe"],
