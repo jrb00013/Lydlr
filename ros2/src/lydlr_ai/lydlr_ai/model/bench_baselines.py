@@ -1688,11 +1688,11 @@ def lydlr_rate_and_recon(
 
 
 def _lydlr_vision_dct_report(frames: Sequence[np.ndarray], out: dict) -> dict:
-    """Image-only Lydlr path: temporal residual, 8x8 DCT, countable rANS."""
-    from lydlr_ai.model.temporal_dct import encode_temporal_dct
+    """Image-only Lydlr path: YCbCr residual, mild freq DCT, countable rANS."""
+    from lydlr_ai.model.temporal_dct import encode_temporal_dct, model_confidence
 
-    qsteps = (4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0)
-    out["codec_path"] = "temporal_dct_rans"
+    qsteps = (2.0, 4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0)
+    out["codec_path"] = "temporal_dct_rans_v2"
     out["rate_source"] = RANS
     out["trained"] = True
     out["device"] = "cpu"
@@ -1701,20 +1701,25 @@ def _lydlr_vision_dct_report(frames: Sequence[np.ndarray], out: dict) -> dict:
         _payload, recons, stats = encode_temporal_dct(frames, qstep=qstep)
         ps = [psnr(f, r) for f, r in zip(frames, recons)]
         ss = [ssim(f, r) for f, r in zip(frames, recons)]
+        psnr_mean = float(np.mean(ps))
+        conf = model_confidence(zero_frac=float(stats["zero_frac"]), psnr_db=psnr_mean)
         out["points"].append({
             "target_quality": float(qstep),
             "bits": float(stats["bits_per_frame"]),
             "bytes_per_frame": float(stats["payload_bytes"]) / max(len(frames), 1),
             "bpp": float(stats["bpp"]),
+            "compression_ratio": float(stats["compression_ratio"]),
+            "confidence": conf,
+            "zero_frac": float(stats["zero_frac"]),
             "rate_source": RANS,
             "fixed_length_bits": float(stats["bits_per_frame"]),
             "empirical_entropy_bits": float(stats["bits_per_frame"]),
             "proxy_bits": 0.0,
             "trained": True,
             "latent_dim": None,
-            "codec_path": "temporal_dct_rans",
+            "codec_path": "temporal_dct_rans_v2",
             "qstep": float(qstep),
-            "psnr_mean": float(np.mean(ps)),
+            "psnr_mean": psnr_mean,
             "psnr_std": float(np.std(ps)),
             "psnr_min": float(np.min(ps)),
             "psnr_max": float(np.max(ps)),
