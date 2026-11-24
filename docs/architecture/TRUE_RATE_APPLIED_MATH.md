@@ -22,8 +22,8 @@ The trainer scores “how surprising the codes look” with a learned probabilit
 | Index `q ∈ {0..L−1}^d` | What must be recoverable on the decoder |
 | Entropy proxy `R_proxy` | Differentiable cross-entropy / model surprise (bits) |
 | Fixed-length rate `R_fix` | `d · ⌈log₂ L⌉` bits |
-| Packed payload | Bytes actually serialized (`d` bytes if `L ≤ 256`) |
-| Countable rate `R_true` | `8 · packed_bytes` per sample (no ANS yet) |
+| Packed payload | Bytes actually serialized (rANS bitstream preferred; uint8 fixed-length fallback) |
+| Countable rate `R_true` | `8 · packed_bytes / batch` per sample (`rate_source=rans_bits` or `fixed_length_bits`) |
 
 ---
 
@@ -52,8 +52,8 @@ The trainer scores “how surprising the codes look” with a learned probabilit
 
 1. **Train** with `R_proxy` (differentiable).  
 2. **Report** `R_true` and `R_fix` every eval.  
-3. **Ship** packed indices (or ANS later).  
-4. Only claim link bitrate from `R_true` (or ANS length).
+3. **Ship** rANS-packed indices (`pack_indices_rans` / `rate_report`); uint8 fixed-length is the fallback only.  
+4. Only claim link bitrate from `R_true` (`rate_source` must be explicit).
 
 ---
 

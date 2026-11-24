@@ -23,7 +23,7 @@ def test_encode_frame_roundtrip_and_rate():
 
 
 def test_session_ticks_are_countable():
-    session = VisionSession(qstep=16.0, max_width=64, n_frames=4)
+    session = VisionSession(qstep=16.0, max_width=64, n_frames=4, adaptive=False)
     first = session.tick()["metric"]
     second = session.tick()["metric"]
     assert first["keyframe"] is True
@@ -34,3 +34,19 @@ def test_session_ticks_are_countable():
     assert second["confidence"] > 0.85
     assert second["quality_score"] > 0.85
     assert second["modality_bytes_in"]["camera"] == second["bytes_in"]
+
+
+def test_adaptive_qstep_rises_when_confidence_is_high():
+    session = VisionSession(
+        qstep=8.0, max_width=64, n_frames=8, adaptive=True, qstep_min=4.0, qstep_max=24.0
+    )
+    ratios = []
+    qsteps = []
+    for _ in range(6):
+        m = session.tick()["metric"]
+        ratios.append(m["compression_ratio"])
+        qsteps.append(m["qstep"])
+        assert m["confidence"] > 0.7
+    # After keyframe, locked P-frames should coarsen qstep and improve ratio.
+    assert qsteps[-1] >= qsteps[1]
+    assert max(ratios[1:]) >= ratios[0]

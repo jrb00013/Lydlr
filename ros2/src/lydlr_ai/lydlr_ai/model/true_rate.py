@@ -56,14 +56,46 @@ def unpack_indices_u8(
     return arr.reshape(batch, latent_dim)
 
 
+def pack_indices_rans(
+    indices: np.ndarray | torch.Tensor,
+    *,
+    num_levels: int = 256,
+    symbol_probs: np.ndarray | torch.Tensor | None = None,
+) -> Tuple[bytes, np.ndarray]:
+    """Entropy-code indices with order-0 rANS. Returns payload and the PMF used."""
+    from lydlr_ai.model.entropy_coder import empirical_pmf, rans_encode
+
+    if isinstance(indices, torch.Tensor):
+        idx_np = indices.detach().cpu().numpy().reshape(-1).astype(np.uint8)
+    else:
+        idx_np = np.asarray(indices, dtype=np.uint8).reshape(-1)
+    alphabet = max(int(num_levels), int(idx_np.max()) + 1 if idx_np.size else 1)
+    if symbol_probs is None:
+        probs = empirical_pmf(idx_np, alphabet)
+    else:
+        if isinstance(symbol_probs, torch.Tensor):
+            probs = symbol_probs.detach().float().cpu().numpy().astype(np.float64).reshape(-1)
+        else:
+            probs = np.asarray(symbol_probs, dtype=np.float64).reshape(-1)
+        if probs.size < alphabet:
+            probs = np.pad(probs, (0, alphabet - probs.size))
+        probs = probs[:alphabet]
+        s = float(probs.sum())
+        probs = probs / s if s > 0 else empirical_pmf(idx_np, alphabet)
+    return rans_encode(idx_np, probs), probs
+
+
 def countable_rate_from_indices(
     indices: torch.Tensor,
     num_levels: int = 256,
+    *,
+    prefer_rans: bool = True,
 ) -> Dict[str, float]:
     """
     Measure countable rate for a batch of index tensors (B, D).
 
-    Returns per-batch-mean bits and the fixed-length ceiling.
+    Returns **per-sample** bits. Prefers rANS when ``prefer_rans`` is true so a
+    peaked latent distribution reports below the fixed-length ceiling.
     """
     if indices is None:
         return {
@@ -71,17 +103,36 @@ def countable_rate_from_indices(
             "fixed_length_bits": 0.0,
             "packed_bytes": 0.0,
             "bits_per_symbol": float(bits_per_index(num_levels)),
+            "rate_source": "none",
         }
-    b, d = indices.shape[0], indices.shape[-1]
-    packed = pack_indices_u8(indices, num_levels=num_levels)
-    packed_bits = float(len(packed) * 8) / max(b, 1)
+    b = max(int(indices.shape[0]), 1)
+    d = int(indices.shape[-1])
     fixed = fixed_length_rate_bits(d, num_levels)
+
+    if prefer_rans:
+        try:
+            packed, _probs = pack_indices_rans(indices, num_levels=num_levels)
+            packed_bits = float(len(packed) * 8) / b
+            return {
+                "true_rate_bits": packed_bits,
+                "fixed_length_bits": fixed,
+                "packed_bytes": float(len(packed)) / b,
+                "bits_per_symbol": packed_bits / max(d, 1),
+                "latent_dim": float(d),
+                "rate_source": "rans_bits",
+            }
+        except Exception:
+            pass
+
+    packed = pack_indices_u8(indices, num_levels=num_levels)
+    packed_bits = float(len(packed) * 8) / b
     return {
-        "true_rate_bits": packed_bits,  # actual packed payload bits / sample
+        "true_rate_bits": packed_bits,
         "fixed_length_bits": fixed,
-        "packed_bytes": float(len(packed)) / max(b, 1),
+        "packed_bytes": float(len(packed)) / b,
         "bits_per_symbol": float(bits_per_index(num_levels)),
         "latent_dim": float(d),
+        "rate_source": "fixed_length_bits",
     }
 
 
@@ -94,10 +145,14 @@ def rate_report(
     """Combine proxy entropy estimate with countable wire payload.
 
     Prefer rANS (``lydlr_ai.model.entropy_coder.rans_encode``) when available so
-    ``true_rate_bits`` is the length of a real bitstream, not fixed-length packing.
-    Falls back to uint8 packing and labels ``rate_source`` accordingly.
+    ``true_rate_bits`` is the length of a real bitstream **per sample**, not
+    fixed-length packing. Falls back to uint8 packing and labels ``rate_source``.
     """
-    proxy = float(proxy_bits.mean().detach().cpu()) if proxy_bits is not None and proxy_bits.numel() else 0.0
+    proxy = (
+        float(proxy_bits.mean().detach().cpu())
+        if proxy_bits is not None and getattr(proxy_bits, "numel", lambda: 0)()
+        else 0.0
+    )
     if indices is None:
         stats = {
             "proxy_rate_bits": proxy,
@@ -108,41 +163,29 @@ def rate_report(
             "rate_source": "none",
         }
         return stats, b""
-    countable = countable_rate_from_indices(indices, num_levels=num_levels)
-    fixed = countable["fixed_length_bits"]
-    idx_np = indices.detach().cpu().numpy().reshape(-1).astype(np.uint8)
+
+    b = max(int(indices.shape[0]), 1)
+    fixed = fixed_length_rate_bits(int(indices.shape[-1]), num_levels)
     packed = b""
     rate_source = "fixed_length_bits"
     true_b = float(fixed)
 
     try:
-        from lydlr_ai.model.entropy_coder import empirical_pmf, rans_encode
-
-        if symbol_probs is None:
-            probs = empirical_pmf(idx_np, max(num_levels, int(idx_np.max()) + 1))
-        else:
-            if isinstance(symbol_probs, torch.Tensor):
-                probs = symbol_probs.detach().float().cpu().numpy().astype(np.float64).reshape(-1)
-            else:
-                probs = np.asarray(symbol_probs, dtype=np.float64).reshape(-1)
-            if probs.size < num_levels:
-                probs = np.pad(probs, (0, num_levels - probs.size))
-            probs = probs[: max(num_levels, int(idx_np.max()) + 1)]
-            s = probs.sum()
-            probs = probs / s if s > 0 else empirical_pmf(idx_np, probs.size)
-        packed = rans_encode(idx_np, probs)
-        true_b = float(len(packed) * 8)
+        packed, _probs = pack_indices_rans(
+            indices, num_levels=num_levels, symbol_probs=symbol_probs
+        )
+        true_b = float(len(packed) * 8) / b
         rate_source = "rans_bits"
     except Exception:
         packed = pack_indices_u8(indices, num_levels=num_levels)
-        true_b = float(len(packed) * 8) / max(int(indices.shape[0]), 1)
+        true_b = float(len(packed) * 8) / b
         rate_source = "fixed_length_bits"
 
     stats = {
         "proxy_rate_bits": proxy,
         "true_rate_bits": true_b,
         "fixed_length_bits": fixed,
-        "packed_bytes": float(len(packed)),
+        "packed_bytes": float(len(packed)) / b,
         "proxy_vs_true_ratio": proxy / max(true_b, 1e-8),
         "rate_source": rate_source,
     }
